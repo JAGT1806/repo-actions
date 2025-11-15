@@ -1,0 +1,9 @@
+name: Build and Test
+description: Run Maven build and tests
+
+runs:
+  using: composite
+  steps:
+    - name: Build and Test
+      shell: bash
+      run: mvn -B clean verify
