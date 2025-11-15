@@ -1,0 +1,12 @@
+name: Setup maven
+description: Setup Java and Maven with cache
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: 21
+        cache: maven
