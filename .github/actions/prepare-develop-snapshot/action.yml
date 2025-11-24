@@ -1,0 +1,29 @@
+# JAGT1806/repo-actions/.github/actions/prepare-develop-snapshot
+name: Prepare Develop Snapshot
+description: After creating a release, bump develop to next snapshot
+
+inputs:
+  base_version:
+    required: true
+    description: base version
+
+runs:
+  using: composite
+  steps:
+    - name: Bump develop to next snapshot
+      shell: bash
+      run: |
+        set -euo pipefail
+        BASE="${{ inputs.base_version }}"
+        MAJOR="$(echo "$BASE" | cut -d. -f1)"
+        MINOR="$(echo "$BASE" | cut -d. -f2)"
+        NEXT="$MAJOR.$((MINOR+1)).0-SNAPSHOT"
+        
+        git fetch origin develop:develop
+        git checkout develop
+        mvn -q version:set -DnewVersion="$NEXT" -DgenerateBackupPoms=false
+        git add -A
+        git commit -m "chore: bump develop to $NEXT || echo "No changes"
+        git push origin develop
+        
+        echo "develop_snapshot=$NEXT" >> GITHUB_OUTPUT
