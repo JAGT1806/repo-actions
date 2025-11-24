@@ -1,0 +1,30 @@
+# JAGT1806/repo-actions/.github/actions/create-release-gh
+name: Create GitHub Release
+
+inputs:
+  tag:
+    required: true
+    description: Tag to create Github release
+  notes:
+    required: false
+    description: Text to watch
+
+runs:
+  using: composite
+  steps:
+    - name: Normalize tag
+      id: norm
+      shell: bash
+      run: |
+        TAG="${{ inputs.tag }}"
+        if [[ "$TAG" != v* ]]; then
+          TAG="v$TAG"
+        fi
+        echo "tag=$TAG" >> $GITHUB_OUTPUT
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.norm.outputs.tag }}
+        body: ${{ inputs.notes }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

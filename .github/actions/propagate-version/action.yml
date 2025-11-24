@@ -1,0 +1,66 @@
+# JAGT1806/repo-actions/.github/actions/propagate-version
+name: Propagate Version
+description: Propagate current version to a list of branches. Create branch updates and PRs if necessary
+
+inputs:
+  branches:
+    required: true
+    description: JSON array of branch to update
+  pr-title:
+    required: false
+    description: PR title template (default uses propagated version)
+
+runs:
+  using: composite
+  steps:
+    - name: Propagate version
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        set -euo pipefail
+        
+        TARGETS=$(echo '${{ inputs.branches }}' | jq -r '.[]')
+        
+        NEW_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        echo "Propagating versio $NEW_VERSION to: $TARGETS"
+        
+        REPO="${GITHUB_REPOSITORY}"
+        GH_HOST="$GITHUB_SERVER_URL#https://}"
+        
+        for BR in $TARGETS; do
+          echo "Processing $BR..."
+        
+          git fecth origin "$BR":"$BR" || { echo "Failed fetch $BR"; continue; }
+          git checkout "$BR"
+        
+          mvn version:set -DnewVersion="$NEW_VERSION" -DgenerateBackupPoms=false
+        
+          if git diff --quiet; then
+            echo "No changase for $BR"
+            continue
+          fi
+        
+          # commit & push to new branch
+          MERGE_BRANCH="merge/propagate-${NEW_VERSION//./-}-to-${BR//\//-}"
+          git checkout -b "$MERGE_BRANCH"
+          git add -A
+          git commit -m "chore: propagate version $NEW_VERSION to $BR"
+          git push origin "$MERGE_BRANCH"
+        
+          # Create PR
+          PR_TITLE"${{ inputs.pr-title }}"
+          if [ -z "$PR_TITLE" ]; then
+            PR_TITLE="[Auto] Propagate version $NEW_VERSION to $BR"
+          fi
+        
+          PR_URL=$(gh pr create --base "$BR" --head "$MERGE_BRANCH" --title "$PR_TITLE" --body "Automated propagation of versio $NEW_VERSION" --json url --jq .url)
+          echo "Created PR: $PR_URL"
+        
+          # Try to auto-merge (merge if clean)
+          if gh pr merge "$PR_URL" --merge --auto --admin; then
+            echo "Merged $PR_URL automatically"
+          else
+            echo "Could not merge automatically; PR left open: $PR_URL"
+          fi
+        done

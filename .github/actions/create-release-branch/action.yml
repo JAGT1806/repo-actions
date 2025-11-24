@@ -1,0 +1,35 @@
+# JAGT1806/repo-actions/.github/actions/create-release-branch
+name: Create Release Branch
+description: Create release branch from develop and set non-SNAPSHOT version
+
+inputs:
+  version:
+    required: true
+    description: Version without snapshot
+
+runs:
+  using: composite
+  steps:
+    - name: Create release branch and set version
+      shell: bash
+      run: |
+        set -euo pipefail
+        VERSION="${{ inputs.version }}"
+        RELEASE_BRANCH="release/${VERSION%.*}"
+        
+        # Ensure develop is up-to-date
+        git fetch origin develop:develop
+        git checkout develop
+        git pull origin develop
+        
+        # Create release branch from develop
+        git checkout -b "$RELEASE_BRANCH"
+        
+        # Set release version (no -SNAPSHOT)
+        mvn -q versions:set -DnewVersion="$VERSION" -DgenerateBackupPoms=false
+        git add -A
+        git commit -m "chore(release): prepare release $VERSION" || echo "No changes to commit"
+        git push -u origin "$RELEASE_BRANCH"
+        
+        echo "release_branch=$RELEASE_BRANCH" >> $GITHUB_OUTPUT
+        echo "release_version=$VERSION" >> $GITHUB_OUTPUT

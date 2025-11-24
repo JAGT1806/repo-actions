@@ -1,0 +1,33 @@
+# JAGT1806/repo-actions/.github/actions/create-tag
+name: Create Git Tag
+description: Create and push git tag
+
+inputs:
+  tag:
+    required: true
+    description: Tag to create
+
+runs: 
+  using: composite
+  steps:
+    - name: Validate and Push tag
+      shell: bash
+      run: |
+        TAG="${{ inputs.tag }}"
+        
+        if [[ "$TAG" != v* ]]; then
+          TAG="v$TAG"
+        fi
+        
+        git config user.name "github-actions"
+        git config user.email "github-actions@github.com"
+        
+        # check exists
+        if git rev-pase "$TAG" >/dev/null 2>&1; then
+          echo "Tag $TAG already exists, skipping tag creation"
+          exit 0
+        fi
+        
+        git tag "$TAG"
+        git push origin "$TAG"
+        echo "tag=$TAG" >> $GITHUB_OUTPUT

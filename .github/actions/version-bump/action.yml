@@ -1,0 +1,47 @@
+# JAGT1806/repo-actions/.github/actions/version-bump
+name: Version Bump
+description: Increase project version
+
+inputs:
+  type:
+    description: major | minor | patch
+    required: true
+  outputs:
+    new_version:
+      value: ${{ steps.bump.outputs.new_version }}
+      description: New version (without -SNAPSHOT)
+
+runs:
+  using: composite
+  steps:
+    - name: Read current version
+      id: read
+      shell: bash
+      run: |
+        VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        CLEAN=${VERSION//-SNAPSHOT/}
+        echo "current=$CLEAN" >> $GITHUB_OUTPUT
+
+    - name: Bump version
+      id: bump
+      shell: bash
+      run: |
+        IFS='.' read -r M m p <<< "${{ steps.read.outputs.current }}"
+        
+        case "${{ inputs.type }}" in
+          major) NEW="$((M+1)).0.0" ;;
+          minor) NEW="$M.$((m+1)).0" ;;
+          patch) NEW="$M.$m.$((p+1))" ;;
+          *) echo "Invalid bump type"; exit 1;;
+        esac
+        
+        echo "new_version=$NEW" >> $GITHUB_OUTPUT
+
+    - name: Apply new version
+      shell: bash
+      run: |
+        mvn version:set -DnewVersion="${{ steps.bump.outputs.new_version }}" -DgenerateBackupPoms=false
+
+    - name: Emit output
+      shell: bash
+      run: echo "new_version=${{ steps.bump.outputs.new_version }}" >> $GITHUB_OUTPUT

@@ -1,0 +1,15 @@
+# JAGT1806/repo-actions/.github/actions/set-version
+name: Set Version
+description: Update version in pom.xml (add or remove SNAPSHOT via provided version)
+
+inputs:
+  version:
+    required: true
+    description: New Version (may include -SNAPSHOT)
+
+runs:
+  using: composite
+  steps:
+    - name: Update version
+      shell: bash
+      run: mvn version:set -DnewVersion=${{ inputs.version }} -DgenerateBackupPoms=false

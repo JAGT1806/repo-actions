@@ -1,0 +1,17 @@
+# JAGT1806/repo-actions/.github/actions/read-version
+name: Read Version
+description: Read current version from Maven pom.xml
+
+outputs:
+  version:
+    description: Project version
+    value: ${{ steps.read.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - id: read
+      shell: bash
+      run: |
+        VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        echo "version=$VERSION" >> $GITHUB_OUTPUT

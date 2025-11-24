@@ -1,0 +1,112 @@
+# JAGT1806/repo-actions/.github/actions/validate-jira
+name: Validate JIRA Ticket
+description: Extract JIRA keys from commits and validate them against the JIRA API
+
+inputs:
+  jira_host:
+    required: true
+    description: JIRA instance URL
+
+  jira_user:
+    required: true
+    description: JIRA API user
+
+  jira_token:
+    required: true
+    description: JIRA API token
+
+  allowed-status:
+    required: false
+    description: Comma-separated list of allowed issues status
+    default: To Do,In Progress,In Review
+
+outputs:
+  issues:
+    description: JSON arrays of validate issue keys
+
+runs:
+  using: composite
+  steps:
+    - name: Extract commits messages
+      id: commits
+      shell: bash
+      run: |
+        echo "Extracting commit messages..."
+        
+        if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+          COMMITS=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/commits -jq '.[].commit.message')
+        else
+          COMMITS=$(git log -1 --prety=format:"%s%n%b")
+        fi
+        
+        echo "COMMITS<<EOF" >> $GITHUB_ENV
+        echo "$COMMITS" >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
+        
+    - name: Extract JIRA issue keys
+      id: extract
+      shell: bash
+      run: |
+        COMMITS="${COMMITS}"
+        
+        echo "🔍 Searching for JIRA keys..."
+        KEYS=$(printf "%s" "$COMMIT" | grep -oE '[A-Z0-9]{2,10}-[0-9]+' | sort -u)
+        
+        if [[ -z "$KEYS" ]]; then
+          echo "❌ No JIRA keys found in commits."
+          exit 1
+        fi
+        
+        # Convert to JSON array
+        JSON=$(printf "%s" "$KEYS" | jq -R . | jq -s .)
+        echo "issues=$JSON" >> $GITHUB_OUTPUT
+        
+        echo "Found keys:"
+        echo "$KEYS"
+
+    # Validate each Jira issue via API
+    - name: Validate issue in JIRA
+      shell: bash
+      env:
+        JIRA_HOST: ${{ inputs.jira_host }}
+        JIRA_USER: ${{ inputs.jira_user }}
+        JIRA_TOKEN: ${{ inputs.jira_token }}
+        ALLOWED: ${{ inputs.allowed-status }}
+        ISSUES: ${{ steps.extract.outputs.issues }}
+      run: |
+        echo "Validating issues in JIRA..."
+        
+        ALLOWED_JSON=$(printf "%s" "$ALLOWED" | tr ',' '\n' | jq -R . | jq -s .)
+        echo "Allowed statuses: $ALLOWED_JSON"
+        
+        ERRORS=0
+        
+        for ISSUE in $(echo "$ISSUES" | jq -r '.[]'); do
+          echo "-> Validating $ISSUE..."
+        
+          RESPONSE=$(curl -s -u "$JIRA_USER:$JIRA_TOKEN" \
+            -H "Accept: application/json" \
+            "$JIRA_HOST/rest/api/3/issue/$ISSUE"
+        
+          if echo "$RESPONSE" | jq -e '.errorMessages' > /dev/null 2>&1; then
+            echo "❌ JIRA issue $ISSUE does not exist or is inaccessible."
+            ERRORS=$((ERRORS+1))
+            continue
+          fi
+        
+          STATUS=$(echo "$RESPONSE" | jq -r '.fields.status.name')
+        
+          echo "Status for $ISSUE -> $STATUS"
+        
+          if ! printf "%d" "$ALLOWED" | tr ',' '\n' | grep -Fxq "$STATUS"; then
+            echo "❌ Status '$STATUS' of $ISSUE is not allowed."
+            ERRORS=$((ERRORS+1))
+          fi
+        done
+        
+        if [[ "$ERRORS" -gt 0 ]]; then
+          echo "❌ Validation failed. Fix errors above."
+          exit 1
+        fi
+        
+        echo "✅ All JIRA issues validated successfully!"
