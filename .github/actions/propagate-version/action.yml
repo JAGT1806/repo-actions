@@ -34,7 +34,7 @@ runs:
           git fecth origin "$BR":"$BR" || { echo "Failed fetch $BR"; continue; }
           git checkout "$BR"
         
-          mvn version:set -DnewVersion="$NEW_VERSION" -DgenerateBackupPoms=false
+          mvn versions:set -DnewVersion="$NEW_VERSION" -DgenerateBackupPoms=false
         
           if git diff --quiet; then
             echo "No changase for $BR"
