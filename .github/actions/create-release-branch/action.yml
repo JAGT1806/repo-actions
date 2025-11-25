@@ -6,11 +6,19 @@ inputs:
   version:
     required: true
     description: Version without snapshot
+outputs:
+  release_brach:
+    description: Created release branch name
+    value: ${{ steps.create.outputs.release_brach }}
+  release_version:
+    description: Release version set
+    value: ${{ steps.create.outputs.release_version }}
 
 runs:
   using: composite
   steps:
     - name: Create release branch and set version
+      id: create
       shell: bash
       run: |
         set -euo pipefail

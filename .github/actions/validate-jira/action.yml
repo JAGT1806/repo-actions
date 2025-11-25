@@ -20,9 +20,14 @@ inputs:
     description: Comma-separated list of allowed issues status
     default: To Do,In Progress,In Review
 
+  github_token:
+    required: true
+    description: Github token for API operation
+
 outputs:
   issues:
     description: JSON arrays of validate issue keys
+    value: ${{ steps.extract.outputs.issues }}
 
 runs:
   using: composite
@@ -30,6 +35,8 @@ runs:
     - name: Extract commits messages
       id: commits
       shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
         echo "Extracting commit messages..."
         
