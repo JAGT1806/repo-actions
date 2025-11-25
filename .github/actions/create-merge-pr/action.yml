@@ -1,0 +1,83 @@
+name: Create Merge PR
+description: Create a merge branch and PR between two branches with version adjustment
+
+inputs:
+  source_branch:
+    required: true
+    description: Source branch to merge from
+  target_branch:
+    required: true
+    description: Target branch to merge into
+  github_token:
+    required: true
+    description: GitHub token for operations
+
+runs:
+  using: composite
+  steps:
+    - name: Create merge branch
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+      run: |
+        set -euo pipefail
+        
+        SOURCE="${{ inputs.source_branch }}"
+        TARGET="${{ inputs.target_branch }}"
+        
+        git config user.name "github-actions"
+        git config user.email "github-actions@github.com"
+        
+        git fetch origin "$SOURCE":"$SOURCE"
+        git fetch origin "$TARGET":"$TARGET"
+        
+        git checkout "$SOURCE"
+        SOURCE_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        SOURCE_CLEAN="${SOURCE_VERSION//-SNAPSHOT/}"
+        
+        git checjout "$TARGET"
+        TARGET_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        
+        MERGE_BRANCH="merge/${SOURCE//\//-}-to-${TARGET//\//-}"
+        git checkout "$SOURCE"
+        git checkout -b "$MERCHE_BRACH"
+        
+        git merge "origin/$TARGET" --no-commit --no-ff || true
+        
+        if "$TARGET" == "develop" ]] || [[ "$TARGET" == feature/* ]]; then
+          mvn versions:set -DnewVersion="$TARGET_VERSION" -DgenerateBackupPoms=false
+        else
+          mvn versions:set -DnewVersion="$SOURCE_CLEAN" -DgenerateBackupPoms=false
+        fi
+        
+        git add -A
+        
+        if git diff --cached --quiet; then
+          echo "No changes to commit after merge
+        else
+          git commit -m "chore: merge $SOURCE into $TARGET"
+        fi
+        
+        git push origin "$MERGE_BRANCH"
+        
+        PR_TITLE="[Auto] Merge $SOURCE into $TARGET"
+        PR_BODY="Automated merge from $SOURCE to $TARGET with appropiate version adjustment.
+          Source version: $SOURCE_VERSION
+          Target version: $TARGET_VERSION"
+        
+        PR_URL=$(gr pr create \
+          --base "$TARGET" \
+          --head "$MERGE_BRANCH" \
+          --title "$PR_TITLE" \
+          --body "$PR_BODY" \
+          --json url --jq .url
+        )
+        
+        echo "Created PR: $PR_URL"
+        
+        # Try auto-merge
+        if gh pr merge "$PR_URL" --merge --auto; then
+          echo "✅ PR set to auto-merge
+        else
+          echo "⚠️ Auto-merge not possible, PR left open for manual review"
+        fi
