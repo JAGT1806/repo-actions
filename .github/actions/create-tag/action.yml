@@ -6,11 +6,16 @@ inputs:
   tag:
     required: true
     description: Tag to create
+outputs:
+  tag:
+    description: Created tag name
+    value: ${{ steps.push.outputs.tag }}
 
 runs: 
   using: composite
   steps:
     - name: Validate and Push tag
+      id: push
       shell: bash
       run: |
         TAG="${{ inputs.tag }}"
@@ -23,7 +28,7 @@ runs:
         git config user.email "github-actions@github.com"
         
         # check exists
-        if git rev-pase "$TAG" >/dev/null 2>&1; then
+        if git rev-parse "$TAG" >/dev/null 2>&1; then
           echo "Tag $TAG already exists, skipping tag creation"
           exit 0
         fi
