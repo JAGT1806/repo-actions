@@ -6,11 +6,16 @@ inputs:
   base_version:
     required: true
     description: base version
+outputs:
+  develop_snapshot:
+    description: next develop snapshot version
+    value: ${{ steps.bump.outputs.develop_snapshot }}
 
 runs:
   using: composite
   steps:
     - name: Bump develop to next snapshot
+      id: bump
       shell: bash
       run: |
         set -euo pipefail
