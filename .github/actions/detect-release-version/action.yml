@@ -15,10 +15,10 @@ inputs:
 outputs:
   release_version:
     description: Detected release version without SNAPSHOT
-    value: ${{}}
+    value: ${{ steps.detected.outputs.release_version }}
   base_version:
     description: Base version from develop
-    value: ${{}}
+    value: ${{ steps.detected.outputs.base_version }}
 
 runs:
   using: composite
@@ -27,7 +27,7 @@ runs:
       id: detected
       shell: bash
       run: |
-        set .euo pipefail
+        set -euo pipefail
         
         DEVELOP_BRANCH="${{ inputs.develop_branch }}"
         SCHEME="${{ inputs.version_scheme }}"
