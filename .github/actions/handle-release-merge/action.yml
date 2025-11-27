@@ -1,0 +1,72 @@
+## JAGT1806/repo-actions/.github/actions/handle-release-merge
+name: Handle Release Merge
+description: Process release branch merges and trigger propagation
+inputs:
+  merged_branch:
+    required: true
+    description: Branch that was merged
+  target_branch:
+    required: true
+    description: Branch where merge occurred
+  version:
+    required: false
+    description: Current version (auto-detected if not provided)
+outputs:
+  new_version:
+    description: New version after bump
+    value: ${{ steps.process.outputs.new_version }}
+  propagated:
+    description: Whether propagation was triggered
+    value: ${{ steps.process.outputs.propagated }}
+runs:
+  using: composite
+  steps:
+    - name: Process release merge
+      id: process
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        set -euo pipefail
+        
+        MERGED_BRANCH="${{ inputs.merged_branch }}"
+        TARGET_BRANCH="${{ inputs.target_branch }}"
+        
+        # Check if this is a release branch merge
+        if [[ "$TARGET_BRANCH" == release/* ]]; then
+          echo "Processing release branch merge..."
+        
+          # Get current version
+          if [ -z "${{ inputs.version }}" ]; then
+            CURRENT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          else
+            CURRENT_VERSION="${{ inputs.version }}"
+          fi
+        
+          # Bump patch version for bugfix/hotfix
+          if [[ "$MERGED_BRANCH" == bugfix/* ]] || [[ "$MERGED_BRANCH" == hotfix/* ]]; then
+            CLEAN_VERSION="${CURRENT_VERSION%-SNAPSHOT}"
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CLEAN_VERSION"
+            NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+        
+            # Update version
+            mvn -q versions:set -DnewVersion="$NEW_VERSION" -DgenerateBackupPoms=false
+            git add -A
+            git commit -m "chore: bump version to $NEW_VERSION"
+            git push origin "$TARGET_BRANCH"
+        
+            # Create tag
+            TAG="v$NEW_VERSION"
+            git tag "$TAG"
+            git push origin "$TAG"
+        
+            echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+            echo "propagated=true" >> $GITHUB_OUTPUT
+          else
+            echo "No version bump needed for branch type: $MERGED_BRANCH"
+            echo "propagated=false" >> $GITHUB_OUTPUT
+          fi
+        else
+          echo "Not a release branch, skipping version bump"
+          echo "propagated=false" >> $GITHUB_OUTPUT
+        fi

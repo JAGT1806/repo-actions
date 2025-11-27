@@ -4,8 +4,16 @@ description: Create release branch from develop and set non-SNAPSHOT version
 
 inputs:
   version:
-    required: true
-    description: Version without snapshot
+    required: false
+    description: Version without snapshot (auto-detected if not provided)
+  version_scheme:
+    required: false
+    description: Version bump scheme if version not provided (major, minor, patch
+    default: minor
+  base_branch:
+    required: false
+    description: Base branch for release
+    default: develop
 outputs:
   release_brach:
     description: Created release branch name
@@ -13,22 +21,46 @@ outputs:
   release_version:
     description: Release version set
     value: ${{ steps.create.outputs.release_version }}
+  base_version:
+    description: Base version from develop
+    value: ${{ steps.create.outputs.base_version }}
 
 runs:
   using: composite
   steps:
+    - name: Auto-detect version if not provided
+      id: detect-version
+      if: ${{ inputs.version == '' }}
+      uses: ./.github/actions/detect-release-version
+      with:
+        develop_branch: ${{ inputs.base_branch }}
+        version_scheme: ${{ inputs.version_scheme }}
+
     - name: Create release branch and set version
       id: create
       shell: bash
       run: |
         set -euo pipefail
-        VERSION="${{ inputs.version }}"
+        
+        if [ -n "${{ inputs.version }}" ]; then
+          VERSION="${{ inputs.version }}"
+          BASE_VERSION="${VERSION%.*}.0"
+        else
+          VERSION="${{ steps.detect-version.outputs.release_version }}"
+          BASE_VERSION="${{ steps.detect-version.outputs.base_version }}"
+        fi
+        
+        BASE_BRANCH="${{ inputs.base_branch }}"
         RELEASE_BRANCH="release/${VERSION%.*}"
         
-        # Ensure develop is up-to-date
-        git fetch origin develop:develop
-        git checkout develop
-        git pull origin develop
+        echo "Creating release branch: $RELEASE_BRANCH"
+        echo "Release version: $VERSION"
+        echo "Base version: $BASE_VERSION"
+        
+        # Ensure base branch is up-to-date
+        git fetch origin "$BASE_BRANCH":"$BASE_BRANCH"
+        git checkout "$BASE_BRANCH"
+        git pull origin "$BASE_BRANCH"
         
         # Create release branch from develop
         git checkout -b "$RELEASE_BRANCH"
@@ -36,8 +68,13 @@ runs:
         # Set release version (no -SNAPSHOT)
         mvn -q versions:set -DnewVersion="$VERSION" -DgenerateBackupPoms=false
         git add -A
-        git commit -m "chore(release): prepare release $VERSION" || echo "No changes to commit"
+        if ! git diff --cached --quiet; then
+          git commit -m "chore(release): prepare release $VERSION"
+        else
+          echo "No changes to commit"
+        fi
         git push -u origin "$RELEASE_BRANCH"
         
         echo "release_branch=$RELEASE_BRANCH" >> $GITHUB_OUTPUT
         echo "release_version=$VERSION" >> $GITHUB_OUTPUT
+        echo "base_version=$BASE_VERSION" >> $GITHUB_OUTPUT

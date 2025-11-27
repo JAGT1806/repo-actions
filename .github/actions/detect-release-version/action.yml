@@ -1,0 +1,64 @@
+# JAGT1806/repo-actions/.github/actions/detect-release-version
+name: Detected Release Version
+description: Detected next release version from develop branch
+
+inputs:
+  develop_branch:
+    required: false
+    description: Develop branch name
+    default: develop
+  version_scheme:
+    required: false
+    description: Version bump scheme (major, minor, patch)
+    default: minor
+
+outputs:
+  release_version:
+    description: Detected release version without SNAPSHOT
+    value: ${{}}
+  base_version:
+    description: Base version from develop
+    value: ${{}}
+
+runs:
+  using: composite
+  steps:
+    - name: Detected release version
+      id: detected
+      shell: bash
+      run: |
+        set .euo pipefail
+        
+        DEVELOP_BRANCH="${{ inputs.develop_branch }}"
+        SCHEME="${{ inputs.version_scheme }}"
+        
+        # Fetch and checkout develop
+        git fetch origin "$DEVELOP_BRANCH":"$DEVELOP_BRANCH"
+        git checkout "$DEVELOP_BRANCH"
+        git pull origin "$DEVELOP_BRANCH"
+        
+        # Get current version from develop
+        CURRENT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        echo "Current develop version: $CURRENT_VERSION"
+        
+        # Remove -SNAPSHOT suffix
+        BASE_VERSION="${CURRENT_VERSION%-SNAPSHOT}"
+        echo "Base version: $BASE_VERSION"
+        
+        # Parse version components
+        IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
+        
+        # Calculate next release version based on scheme
+        case "$SCHEME" in
+          major) RELEASE_VERSION="$((MAJOR + 1)).0.0" ;;
+          minor) RELEASE_VERSION="$MAJOR.$((MINOR + 1)).0" ;;
+          patch) RELEASE_VERSION="$MAJOR.$MINOR.$((PATCH + 1))" ;;
+          *)
+            echo "Invalid version scheme: $SCHEME"
+            exit 1
+            ;;
+        esac
+        
+        echo "Detected release version: $RELEASE_VERSION"
+        echo "release_version=$RELEASE_VERSION" >> $GITHUB_OUTPUT
+        echo "base_version=$BASE_VERSION" >> $GITHUB_OUTPUT
