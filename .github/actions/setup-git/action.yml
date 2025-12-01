@@ -1,0 +1,18 @@
+# JAGT1806/repo-actions/.github/actions/setup-git
+name: "Setup Git"
+description: "Config git, fetch full history and set user"
+
+inputs:
+  github_token:
+    description: "GITHUB_TOKEN or PAT"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git remote set-url origin https://x-acces-token:${{ inputs.github_token }}@github.com/${{ github.repository }}
+        git fetch --prune --unshallow || true

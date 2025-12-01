@@ -1,0 +1,66 @@
+# JAGT1806/repo-actions/.github/actions/auto-merge-pr
+name: "Auto Merge PR"
+description: "Create PR from source to target and auto-merge if possible"
+
+inputs:
+  source_branch:
+    required: true
+    description: Source Branch
+  target_branch:
+    required: false
+    description: Target Branch
+  title:
+    required: false
+    description: Title
+    default: "Auto merge ${{ inputs.source_branch }} -> ${{ inputs.target_branch }}"
+  body:
+    required: false
+    description: Body to PR
+    default: ""
+  github_token:
+    required: true
+    description: Github token
+  merge_method:
+    required: false
+    description: Merge Method
+    default: "merge" # merge, squash, rebase
+
+outputs:
+  pr_url:
+    description: PR URL
+    value: ${{ steps.create.outputs.pr_url }}
+  merged:
+    description: Is merged
+    value: ${{ steps.create.outputs.merged }}
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      id: create
+      run: |
+        set -e
+        
+        # Create PR via gh
+        pr_url=$(gh pr create --base "${{ inputs.target_branch }}" --head "${{ inputs.source_branch }}" --title "${{ inputs.title }}" --body "${{ inputs.body }}" --json url --jq .url )
+        echo "pr_url=${pr_url}" >> $GITHUB_OUTPUT
+        
+        # Try to merge
+        # check for mergeability
+        pr_number=$(basename "$pr_url")
+        
+        # Wait for Github to calculate mergeability
+        for i in {1..10}; do
+          mergeable=$(gh pr view "$pr_number" --json mergeable --jq .mergeable)
+          if [ "$mergeable" != "UNKNOW" ]; then break; fi
+          sleep 2
+        done
+        
+        if [ "$mergeable" = "MERGEABLE" ]; then
+          gh pr merge "$pr_number" --${{ inputs.merge_method }} --delete-branch --admin
+          echo "merged=true" >> $GITHUB_OUTPUT
+        else
+          echo "merged=false" >> $GITHUB_OUTPUT
+        fi
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}

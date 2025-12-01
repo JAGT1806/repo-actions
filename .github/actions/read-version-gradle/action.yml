@@ -1,0 +1,21 @@
+name: "Read Gradle Version"
+description: "Read version from Gradle"
+
+outputs:
+  version:
+    description: "Detected version"
+    value: ${{ steps.read.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Gradle
+      uses: JAGT1806/repo-actions/.github/actions/setup-build-tools@main
+      with:
+        maven: "false"
+        gradle: "true"
+
+    - name: Read version
+      id: read
+      shell: bash
+      run: echo "version=$(./gradlew properties | grep '^version:' | awk '{print $2}')" >> $GITHUB_OUTPUT
