@@ -1,0 +1,46 @@
+name: 'Setup Maven Versioning'
+description: 'Configura el entorno Maven y git para versionamiento'
+
+inputs:
+  github-token:
+    description: 'GitHub token para operaciones'
+    required: true
+
+outputs:
+  current-version:
+    description: 'Versión actual del pom'
+    value: ${{  }}
+  is-snapshot:
+    description: 'Si la versión es SNAPSHOT'
+    value: ${{  }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: 'maven'
+
+    - name: Configure Git
+      shell: bash
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+
+    - name: Get Current Version
+      id: get-version
+      shell: bash
+      run: |
+        VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        
+        if [[ "$VERSION" == *"-SNAPSHOT"* ]]; then
+          echo "is-snapshot=true" >> $GITHUB_OUTPUT
+        else
+          echo "is-snapshot=false" >> $GITHUB_OUTPUT
+        fi
+        
+        echo "Current version: $VERSION"

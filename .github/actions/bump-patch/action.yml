@@ -1,0 +1,34 @@
+# JAGT1806/repo-actions/.github/actions/bump-patch
+name: "Bump Patch"
+description: "Bump patch in a version string X.Y.Z -> X.Y.(Z+1)"
+
+inputs:
+  version:
+    required: true
+    description: Version actual
+  commit_message:
+    required: false
+    description: Commit message
+    default: "chore: bump patch to %s"
+outputs:
+  new_version:
+    description: New Version
+    value: ${{ steps.bump.outputs.new_version }}
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      id: bump
+      run: |
+        ver="${{ inputs.version }}"
+        IFS='.' read -r major minor patch <<< "$ver"
+        
+        if [ -z "$patch" ]; then patch=0; fi
+        newpatch=$((patch+1))
+        new="${major}.${minor}.${newpatch}"
+        
+        echo "new_version=$new" >> $GITHUB_OUTPUT
+        
+        git add -A
+        git commit -m "$(printf "${{ inputs.commit_message }}" "$new")" || echo "no changes"

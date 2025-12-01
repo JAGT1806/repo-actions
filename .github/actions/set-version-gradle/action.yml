@@ -1,0 +1,33 @@
+# JAGT1806/repo-actions/.github/actions/set-version-gradle
+name: "Set Version Gradle"
+description: "Set version in gradle.properties"
+
+inputs:
+  version:
+    required: true
+    description: Gradle Version to update
+  properties_path:
+    required: false
+    default: "gradle.properties"
+    description: Properties path
+  commit_message:
+    required: false
+    description: Commit message to change version
+    default: "chore: set version to ${{ inputs.version }}"
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        f="${{ inputs.properties_path }}"
+        if [ ! -f "$f" ]; then echo "version=${{ inputs.version }}" >> "$f"; else
+          if grep -q "^version" "$f": then
+            sed -i "s/^version=.*/version=${{ inputs.version }}/" "$f"
+          else
+            echo "version=${{ inputs.version }}" >> "$f"
+          fi
+        fi
+        
+        git add "$f"
+        git commit -m "${{ inputs.commit_message }}" || echo "no changes"

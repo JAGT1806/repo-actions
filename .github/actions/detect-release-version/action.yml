@@ -32,13 +32,25 @@ runs:
         DEVELOP_BRANCH="${{ inputs.develop_branch }}"
         SCHEME="${{ inputs.version_scheme }}"
         
+        echo "Detecting version from $BASE_BRANCH with scheme: $SCHEME"
+        
         # Fetch and checkout develop
         git fetch origin "$DEVELOP_BRANCH":"$DEVELOP_BRANCH"
         git checkout "$DEVELOP_BRANCH"
         git pull origin "$DEVELOP_BRANCH"
         
         # Get current version from develop
-        CURRENT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        if [ -f "pom.xml" ]; then
+          echo "Detected Maven project"
+          CURRENT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        elif [ -f "gradle.properties" ]; then
+          echo "Detected Gradle Project"
+          CURRENT_VERSION=$(grep "^version=" gradle.properties | cut -d= -f2)
+        else
+          echo "ERROR: No build tool detected"
+          exit 1
+        fi
+        
         echo "Current develop version: $CURRENT_VERSION"
         
         # Remove -SNAPSHOT suffix

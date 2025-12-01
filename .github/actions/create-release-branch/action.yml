@@ -8,7 +8,7 @@ inputs:
     description: Version without snapshot (auto-detected if not provided)
   version_scheme:
     required: false
-    description: Version bump scheme if version not provided (major, minor, patch
+    description: Version bump scheme if version not provided (major, minor, patch)
     default: minor
   base_branch:
     required: false
@@ -31,7 +31,7 @@ runs:
     - name: Auto-detect version if not provided
       id: detect-version
       if: ${{ inputs.version == '' }}
-      uses: ./.github/actions/detect-release-version
+      uses: JAGT1806/repo-actions/.github/actions/detect-release-version@main
       with:
         develop_branch: ${{ inputs.base_branch }}
         version_scheme: ${{ inputs.version_scheme }}
@@ -66,7 +66,17 @@ runs:
         git checkout -b "$RELEASE_BRANCH"
         
         # Set release version (no -SNAPSHOT)
-        mvn -q versions:set -DnewVersion="$VERSION" -DgenerateBackupPoms=false
+        if [ -f "pom.xml" ]; then
+          echo "Detected Maven project"
+          mvn -q versions:set -DnewVersion="$RELEASE_VERSION" -DgenerateBackupPoms=false
+        elif [ -f "gradle.properties" ]; then
+          echo "Detected Gradle project"
+          sed -i.bak "s/^version=.*/version=$RELEASE_VERSION/" gradle.properties
+          rm -f gradle.properties.bak
+        else
+          echo "WARNING: No build tool detected (pom.xml or gradle.properties)"
+        fi
+        
         git add -A
         if ! git diff --cached --quiet; then
           git commit -m "chore(release): prepare release $VERSION"

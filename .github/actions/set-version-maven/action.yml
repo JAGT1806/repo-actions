@@ -1,0 +1,25 @@
+# JAGT1806/repo-actions/.github/actions/set-version-maven
+name: "Set Version Maven"
+description: "Set Maven Version (pom.xml)"
+
+inputs:
+  version:
+    required: true
+    description: Maven Version to update
+  commit_message:
+    required: false
+    description: Commit message to change version
+    default: "chore: set version to ${{ inputs.version }}"
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        mvn -q -DnewVersion=${{ inputs.version }} versions:set versions:commit || {
+          # fallback to sed for multi-module
+          find . -name pom.xml -exec sed -i "0,/<version>.*<\/version>/s//<version>${{ inputs.version }}<\/version>/" {} \;
+        }
+        
+        git add -A
+        git commit -m "${{ inputs.commit_message }}" || echo "no changes"

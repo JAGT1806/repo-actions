@@ -5,9 +5,24 @@ inputs:
   tag:
     required: true
     description: Tag to create Github release
+  title:
+    required: false
+    description: Title to create Github release
+    default: "${{ inputs.tag }}"
   notes:
     required: false
     description: Text to watch
+  draft:
+    required: false
+    description: Draft
+    default: "false"
+  prerelease:
+    required: false
+    description: prerelease
+    default: "false"
+  github_token:
+    required: true
+    description: Github Token
 
 runs:
   using: composite
@@ -21,10 +36,9 @@ runs:
           TAG="v$TAG"
         fi
         echo "tag=$TAG" >> $GITHUB_OUTPUT
-    - name: Create Release
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: ${{ steps.norm.outputs.tag }}
-        body: ${{ inputs.notes }}
+    - name: Create GitHub Release
+      shell: bash
+      run: |
+        gh release create "${{ inputs.tag }}" --title "${{ inputs.title }}" --notes "${{ inputs.notes }}" $( [ "${{ inputs.draft }}" == "true ] && echo "--draft" ) $( [ "${{ inputs.prerelease }}" == "true" ] && echo "--prerelease )
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}

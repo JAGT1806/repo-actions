@@ -1,0 +1,28 @@
+# JAGT1806/repo-actions/.github/actions/setup-build-tools
+name: "Setup Build Tolls"
+description: "Install Maven and/or Gradle"
+
+inputs:
+  maven:
+    description: "Install Maven"
+    default: "true"
+    required: false
+  gradle:
+    description: "Install Gradle"
+    default: "true"
+    required: false
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Maven
+      if: ${{ inputs.maven == 'true' }}
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: 17
+        cache: maven
+
+    - name: Setup Gradle
+      if: ${{ inputs.gradle == 'true' }}
+      uses: gradle/actions/setup-gradle@v3

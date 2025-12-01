@@ -1,0 +1,21 @@
+name: "Read Version Maven"
+description: "Read version from pom.xml"
+
+outputs:
+  version:
+    description: "Detected version"
+    value: ${{ steps.read.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Maven
+      uses: JAGT1806/.github/actions/setup-build-tools@main
+      with:
+        maven: "true"
+        gradle: "false"
+
+    - name: Read version
+      id: read
+      shell: bash
+      run: echo "version=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)" >> $GITHUB_OUTPUT
