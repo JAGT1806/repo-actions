@@ -6,6 +6,9 @@ inputs:
   tag:
     required: true
     description: Tag to create
+  github_token:
+    required: true
+    description: Github Token
 outputs:
   tag:
     description: Created tag name
@@ -16,6 +19,8 @@ runs:
   steps:
     - name: Validate and Push tag
       id: push
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
       shell: bash
       run: |
         TAG="${{ inputs.tag }}"
@@ -23,9 +28,6 @@ runs:
         if [[ "$TAG" != v* ]]; then
           TAG="v$TAG"
         fi
-        
-        git config user.name "github-actions"
-        git config user.email "github-actions@github.com"
         
         # check exists
         if git rev-parse "$TAG" >/dev/null 2>&1; then
