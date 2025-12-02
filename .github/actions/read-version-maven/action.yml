@@ -10,7 +10,7 @@ runs:
   using: composite
   steps:
     - name: Install Maven
-      uses: JAGT1806/.github/actions/setup-build-tools@main
+      uses: JAGT1806/repo-actions/.github/actions/setup-build-tools@main
       with:
         maven: "true"
         gradle: "false"
