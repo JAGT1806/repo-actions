@@ -10,11 +10,16 @@ inputs:
     required: false
     description: Commit message to change version
     default: "chore: set version to ${{ inputs.version }}"
+  github_token:
+    required: true
+    description: Github Token
 
 runs:
   using: composite
   steps:
     - shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
         mvn -q -DnewVersion=${{ inputs.version }} versions:set versions:commit || {
           # fallback to sed for multi-module

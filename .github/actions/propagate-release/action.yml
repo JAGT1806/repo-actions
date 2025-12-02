@@ -1,27 +1,29 @@
 # JAGT1806/repo-actions/.github/actions/propagate-release
 name: Propagate Release Changes
-description: Propagate changes from one release branch to subsequent releases and develop
+description: Propagate changes from one release branch to another branch
 
 inputs:
-  source_branch:
+  from_branch:
     required: true
-    description: Source release branch
-  source_version:
+    description: Source branch (release branch)
+  to_branch:
     required: true
-    description: Current version of source branch
-  target_releases:
+    description: Target branch (next release or develop)
+  packaging:
     required: false
-    description: JSON array of target release branches
-    default: "[]"
-  develop_branch:
-    required: false
-    description: Develop branch name
-    default: develop
+    description: Build tool (maven|gradle)
+    default: maven
+  github_token:
+    required: true
+    description: Github Token
 
 outputs:
-  propagated_branches:
-    description: JSON array of sucesully propagated branch
-    value: ${{ steps }}
+  merged:
+    description: Whether the propagation was successful
+    value: ${{ steps.propagate.outputs.merged }}
+  pr_url:
+    description: URL of created PR
+    value: ${{ steps.propagate.outputs.pr_url }}
 
 runs:
   using: composite
@@ -34,113 +36,89 @@ runs:
       run: |
         set -euo pipefail
         
-        SOURCE_BRANCH="${{ inputs.source_branch }}"
-        SOURCE_VERSION="${{ inputs.source_version }}"
-        TARGET_RLEASES=$(echo '${{ inputs.target_releases }}' | jq -r '.[]')
-        DEVELOP_BRANCH="${{ inputs.develop_branch }}"
+        FROM_BRANCH="${{ inputs.from_branch }}"
+        TO_BRANCH="${{ inputs.to_branch }}"
+        PACKAGING="${{ inputs.packaging }}"
         
-        PROPAGATED=()
+        echo "Propagating from $FROM_BRANCH to $TO_BRANCH"
         
-        # Propagate to subsequent releases
-        for TARGET_BRANCH in $TARGET_RLEASES; do
-          echo "Propagating to $TARGET_BRANCH..."
+        # Create merge branch
+        MERGE_BRANCH="merge/${FROM_BRANCH//\//-}-to-${TO_BRANCH//\//-}"
+        echo "Merge branch: $MERGE_BRANCH"
         
-          MERGE_BRANCH="merge/${SOURCE_BRANCH//\//-}-to-${TARGET_BRANCH//\//-}"
-          
-          # Fecth and create merge branch
-          git fecth origin "$TARGET_BRANCH":"$TARGET_BRANCH"
-          git checkout "$TARGET_BRANCH"
-          git checkout -b "$MERGE_BRANCH"
-          
-          # Merge changes
-          if git merge --no-commit "origin/$SOURCE_BRANCH"; then
-            # Auto-resolve POM conflicts by keeping target version
+        # Fetch latest changes
+        git fetch origin
+        git checkout -b "$MERGE_BRANCH" "origin/$TO_BRANCH"
+        git push --set-upstream origin "$MERGE_BRANCH"
+        
+        # Merge changes
+        if git merge --no-edit "origin/$FROM_BRANCH"; then
+          echo "Merge successful"
+        
+          # Resolve version conflicts based on packaging
+          if [ "$PACKAGING" = "maven" ] && [ -f "pom.xml" ]; then
             if git diff --name-only --diff-filter=U | grep -q pom.xml; then
+              echo "Resolving Maven version conflict"
               git checkout --ours pom.xml
               git add pom.xml
             fi
-          
-            if git commit -m "chore: merge changes from $SOURCE_BRANCH"; then
-              # Get current target version and bump patch
-              CURRENT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
-              CLEAN_VERSION="${CURRENT_VERSION%-SNAPSHOT}"
-              IFS='.' read -r MAJOR MINOR PATCH <<< "$CLEAN_VERSION"
-              NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
-          
-              # Update version
-              mvn -q versions:set -DnewVersion="$NEW_VERSION" -DgenerateBackupPoms=false
-              git add -A
-              git commit -m "chore: bump version to $NEW_VERSION" || echo "No version changes"
-          
-              git push origin "$MERGE_BRANCH"
-          
-              # Create PR
-              PR_URL=$(gh pr create \
-                --base "$TARGET_BRANCH" \
-                --head "$MERGE_BRANCH" \
-                --title "Auto-merge: $SOURCE_BRANCH → $TARGET_BRANCH" \
-                --body "Automated propagation of changes from $SOURCE_BRANCH" \
-                --json url --jq .url)
-          
-              # Try auto-merge
-              if gh pr merge "$PR_URL" --merge --auto --admin; then
-                echo "Successfully propagated to $TARGET_BRANCH"
-                PROPAGATED+=("$TARGET_BRANCH)
-          
-                # Create tag
-                git checkout "$TARGET_BRANCH"
-                git pull origin "$TARGET_BRANCH"
-                TAG="v$NEW_VERSION"
-                if ! git rev-parse "$TAG" >/dev/null 2>&1; then
-                  git tag "$TAG"
-                  git push origin "$TAG"
-                fi
-              else
-                echo "PR created but requires manual merge: $PR_URL"
-              fi
+          elif [ "$PACKAGING" = "gradle" ]; then
+            # Check for gradle.properties conflicts
+            if git diff --name-only --diff-filter=U | grep -q gradle.properties; then
+              echo "Resolving Gradle version conflict"
+              git checkout --ours gradle.properties
+              git add gradle.properties
             fi
+            # Check for build.gradle conflicts
+            if git diff --name-only --diff-filter=U | grep -q build.gradle; then
+              echo "Resolving build.gradle conflict"
+              git checkout --ours build.gradle
+              git add build.gradle
+            fi
+          fi
+        
+          # Commit if there were resolved conflicts
+          if ! git diff --cached --quiet; then
+            git commit --no-edit
+          fi
+        
+          git push origin "$MERGE_BRANCH"
+        
+          # Create PR
+          PR_URL=$(gh pr create \
+            --base "$TO_BRANCH" \
+            --head "$MERGE_BRANCH" \
+            --title "Auto-merge: $FROM_BRANCH → $TO_BRANCH" \
+            --body "Automated propagation of changes from $FROM_BRANCH" \
+            --json url --jq .url)
+        
+          echo "PR created: $PR_URL"
+          PR_NUMBER=$(basename "$PR_URL")
+        
+          # Wait for PR to be ready for merge
+          echo "Waiting for PR to be mergeable..."
+          for i in {1..10}; do
+            MERGEABLE=$(gh pr view "$PR_NUMBER" --json mergeable --jq .mergeable)
+            if [ "$MERGEABLE" != "UNKNOWN" ]; then
+              break
+            fi
+            sleep 2
+          done
+        
+          if [ "$MERGEABLE" = "MERGEABLE" ]; then
+            echo "Auto-merging PR..."
+            gh pr merge "$PR_NUMBER" --merge --delete-branch --admin
+            echo "merged=true" >> $GITHUB_OUTPUT
           else
-            echo "Merge failed for $TARGET_BRANCH, skipping..."
-            git merge --abort
-          fi
-        done
-        
-        # Propagate to develop
-        echo "Propagating to $DEVELOP_BRANCH..."
-        MERGE_BRANCH="merge/${SOURCE_BRANCH//\//-}-to-$DEVELOP_BRANCH"
-        
-        git fetch origin "$DEVELOP_BRANCH":"$DEVELOP_BRANCH"
-        git checkout "$DEVELOP_BRANCH"
-        git checkout -b "$MERGE_BRANCH"
-        
-        if git merge --no-commit "origin/$SOURCE_BRANCH"; then
-          # Always keep develop's SNAPSHOT version
-          if git diff --name=only --diff-filter=U | grep -q pom.xml; then
-            git checkout --ours pom.xml
-            git add pom.xml
+            echo "PR not mergeable. Status: $MERGEABLE"
+            echo "merged=false" >> $GITHUB_OUTPUT
           fi
         
-          if git commit -m "chore: merge change from $SOURCE_BRANCH to develop"; then
-            git push origin "$MERGE_BRANCH"
-            
-            PR_URL=$(gh pr create\
-              --base "$DEVELOP_BRANCH" \
-              --head "$MERGE_BRANCH" \
-              --tile "Auto-merge: $SOURCE_BRANCH → $DEVELOP_BRANCH" \
-              --json url jq .url)
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
         
-            if gh pr merge "$PR_URL" --merge --auto --admin; the
-              echo "Successfully propagated to $DEVELOP_BRANCH"
-              PROPAGATED+=("$DEVELOP_BRANCH")
-            else
-              echo "PR created but requires manual merge: $PR_URL"
-            fi
-          fi
         else
-          echo "Merge to develop failed, skipping..."
+          echo "Merge failed, aborting..."
           git merge --abort
+          echo "merged=false" >> $GITHUB_OUTPUT
+          echo "pr_url=" >> $GITHUB_OUTPUT
         fi
-        
-        # Output propagated branches
-        printf -v PROPAGATED_JSON '%s\n' "${PROPAGATED[@]}" | jq -s .
-        echo "propagated_branches=$PROPAGATED_JSON" >> $GITHUB_OUTPUT
