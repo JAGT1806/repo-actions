@@ -14,8 +14,11 @@ inputs:
     required: false
     description: Base branch for release
     default: develop
+  github_token:
+    required: true
+    description: Github Token
 outputs:
-  release_brach:
+  release_branch:
     description: Created release branch name
     value: ${{ steps.create.outputs.release_brach }}
   release_version:
@@ -38,6 +41,8 @@ runs:
 
     - name: Create release branch and set version
       id: create
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
       shell: bash
       run: |
         set -euo pipefail
