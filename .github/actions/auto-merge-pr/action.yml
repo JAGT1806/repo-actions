@@ -7,60 +7,97 @@ inputs:
     required: true
     description: Source Branch
   target_branch:
-    required: false
+    required: true
     description: Target Branch
   title:
     required: false
-    description: Title
+    description: PR title
     default: "Auto merge ${{ inputs.source_branch }} -> ${{ inputs.target_branch }}"
   body:
     required: false
-    description: Body to PR
-    default: ""
+    description: PR body
+    default: "Automated PR created by GitHub Actions"
   github_token:
     required: true
-    description: Github token
+    description: GitHub token
   merge_method:
     required: false
-    description: Merge Method
-    default: "merge" # merge, squash, rebase
+    description: Merge method (merge, squash, rebase)
+    default: "merge"
 
 outputs:
   pr_url:
     description: PR URL
     value: ${{ steps.create.outputs.pr_url }}
   merged:
-    description: Is merged
+    description: Whether PR was merged
     value: ${{ steps.create.outputs.merged }}
+  pr_number:
+    description: PR number
+    value: ${{ steps.create.outputs.pr_number }}
+  merge_sha:
+    description: Merge commit SHA (if merged)
+    value: ${{ steps.create.outputs.merge_sha }}
 
 runs:
   using: composite
   steps:
-    - shell: bash
+    - name: Create and merge PR
       id: create
+      shell: bash
       run: |
-        set -e
+        set -euo pipefail
         
-        # Create PR via gh
-        pr_url=$(gh pr create --base "${{ inputs.target_branch }}" --head "${{ inputs.source_branch }}" --title "${{ inputs.title }}" --body "${{ inputs.body }}" --json url --jq .url )
-        echo "pr_url=${pr_url}" >> $GITHUB_OUTPUT
+        echo "Creating PR from ${{ inputs.source_branch }} to ${{ inputs.target_branch }}"
         
-        # Try to merge
-        # check for mergeability
-        pr_number=$(basename "$pr_url")
+        # Create PR
+        PR_RESPONSE=$(gh pr create \
+          --base "${{ inputs.target_branch }}" \
+          --head "${{ inputs.source_branch }}" \
+          --title "${{ inputs.title }}" \
+          --body "${{ inputs.body }}" \
+          --json url,number)
         
-        # Wait for Github to calculate mergeability
+        PR_URL=$(echo "$PR_RESPONSE" | jq -r '.url')
+        PR_NUMBER=$(echo "$PR_RESPONSE" | jq -r '.number')
+        
+        echo "PR created: $PR_URL"
+        echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+        echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+        
+        # Wait for GitHub to calculate mergeability
+        echo "Checking mergeability..."
         for i in {1..10}; do
-          mergeable=$(gh pr view "$pr_number" --json mergeable --jq .mergeable)
-          if [ "$mergeable" != "UNKNOW" ]; then break; fi
-          sleep 2
+          MERGEABLE=$(gh pr view "$PR_NUMBER" --json mergeable --jq .mergeable)
+          echo "Attempt $i: mergeable=$MERGEABLE"
+        
+          if [ "$MERGEABLE" != "UNKNOWN" ]; then
+            break
+          fi
+          sleep 3
         done
         
-        if [ "$mergeable" = "MERGEABLE" ]; then
-          gh pr merge "$pr_number" --${{ inputs.merge_method }} --delete-branch --admin
+        if [ "$MERGEABLE" = "MERGEABLE" ]; then
+          echo "PR is mergeable. Merging with ${{ inputs.merge_method }} method..."
+        
+          # Merge the PR
+          MERGE_RESULT=$(gh pr merge "$PR_NUMBER" \
+            --${{ inputs.merge_method }} \
+            --delete-branch \
+            --admin \
+            --json sha)
+        
+          MERGE_SHA=$(echo "$MERGE_RESULT" | jq -r '.sha')
+        
+          echo "✅ PR merged successfully!"
+          echo "Merge SHA: $MERGE_SHA"
+        
           echo "merged=true" >> $GITHUB_OUTPUT
+          echo "merge_sha=$MERGE_SHA" >> $GITHUB_OUTPUT
         else
+          echo "⚠️ PR is not mergeable. Status: $MERGEABLE"
           echo "merged=false" >> $GITHUB_OUTPUT
+          echo "merge_sha=" >> $GITHUB_OUTPUT
         fi
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}

@@ -1,44 +1,99 @@
 # JAGT1806/repo-actions/.github/actions/create-release-gh
 name: Create GitHub Release
+description: Create GitHub release with optional draft/prerelease flags
 
 inputs:
   tag:
     required: true
-    description: Tag to create Github release
+    description: Tag name (with or without 'v' prefix)
   title:
     required: false
-    description: Title to create Github release
-    default: "${{ inputs.tag }}"
+    description: Release title
+    default: ""
   notes:
     required: false
-    description: Text to watch
+    description: Release notes
+    default: ""
   draft:
     required: false
-    description: Draft
+    description: Create as draft release
     default: "false"
   prerelease:
     required: false
-    description: prerelease
+    description: Create as prerelease
     default: "false"
   github_token:
     required: true
-    description: Github Token
+    description: GitHub Token
+
+outputs:
+  release_url:
+    description: URL of created release
+    value: ${{ steps.create-release.outputs.release_url }}
+  tag_name:
+    description: Normalized tag name used
+    value: ${{ steps.normalize-tag.outputs.tag }}
 
 runs:
   using: composite
   steps:
     - name: Normalize tag
-      id: norm
+      id: normalize-tag
       shell: bash
       run: |
         TAG="${{ inputs.tag }}"
-        if [[ "$TAG" != v* ]]; then
+        
+        # Ensure tag starts with 'v'
+        if [[ ! "$TAG" =~ ^v ]]; then
           TAG="v$TAG"
+          echo "Normalized tag to: $TAG"
         fi
+        
         echo "tag=$TAG" >> $GITHUB_OUTPUT
+
     - name: Create GitHub Release
+      id: create-release
       shell: bash
       run: |
-        gh release create "${{ inputs.tag }}" --title "${{ inputs.title }}" --notes "${{ inputs.notes }}" $( [ "${{ inputs.draft }}" == "true ] && echo "--draft" ) $( [ "${{ inputs.prerelease }}" == "true" ] && echo "--prerelease )
+        set -euo pipefail
+        
+        TAG="${{ steps.normalize-tag.outputs.tag }}"
+        
+        # Build command with optional flags
+        CMD="gh release create \"$TAG\""
+        
+        # Add title if provided
+        if [ -n "${{ inputs.title }}" ]; then
+          CMD="$CMD --title \"${{ inputs.title }}\""
+        else
+          CMD="$CMD --title \"$TAG\""
+        fi
+        
+        # Add notes if provided
+        if [ -n "${{ inputs.notes }}" ]; then
+          CMD="$CMD --notes \"${{ inputs.notes }}\""
+        else
+          CMD="$CMD --generate-notes"
+        fi
+        
+        # Add draft flag
+        if [ "${{ inputs.draft }}" = "true" ]; then
+          CMD="$CMD --draft"
+        fi
+        
+        # Add prerelease flag
+        if [ "${{ inputs.prerelease }}" = "true" ]; then
+          CMD="$CMD --prerelease"
+        fi
+        
+        echo "Creating release with command:"
+        echo "$CMD"
+        
+        # Execute and capture output
+        RELEASE_JSON=$(eval "$CMD" --json url)
+        RELEASE_URL=$(echo "$RELEASE_JSON" | jq -r '.url')
+        
+        echo "✅ Release created: $RELEASE_URL"
+        echo "release_url=$RELEASE_URL" >> $GITHUB_OUTPUT
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
