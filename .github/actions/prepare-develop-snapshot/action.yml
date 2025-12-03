@@ -31,9 +31,9 @@ runs:
         
         git fetch origin
         git checkout develop
-        mvn -q version:set -DnewVersion="$NEXT" -DgenerateBackupPoms=false
+        mvn -q versions:set -DnewVersion="$NEXT" -DgenerateBackupPoms=false
         git add -A
-        git commit -m "chore: bump develop to $NEXT || echo "No changes"
+        git commit -m "chore: bump develop to $NEXT" || echo "No changes"
         git push origin develop
         
-        echo "develop_snapshot=$NEXT" >> GITHUB_OUTPUT
+        echo "develop_snapshot=$NEXT" >> $GITHUB_OUTPUT
