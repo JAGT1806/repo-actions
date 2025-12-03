@@ -29,7 +29,7 @@ runs:
         MINOR="$(echo "$BASE" | cut -d. -f2)"
         NEXT="$MAJOR.$((MINOR+1)).0-SNAPSHOT"
         
-        git fetch origin develop:develop
+        git fetch origin
         git checkout develop
         mvn -q version:set -DnewVersion="$NEXT" -DgenerateBackupPoms=false
         git add -A
