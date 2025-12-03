@@ -35,7 +35,7 @@ runs:
         echo "Detecting version from $DEVELOP_BRANCH with scheme: $SCHEME"
         
         # Fetch and checkout develop
-        git fetch origin "$DEVELOP_BRANCH":"$DEVELOP_BRANCH"
+        git fetch origin
         git checkout "$DEVELOP_BRANCH"
         git pull origin "$DEVELOP_BRANCH"
         
