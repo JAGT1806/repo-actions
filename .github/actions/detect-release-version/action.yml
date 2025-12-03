@@ -60,18 +60,18 @@ runs:
         # Parse version components
         IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
         
-        RELEASE_VERSION=""
         # Calculate next release version based on scheme
         case "$SCHEME" in
-          major) RELEASE_VERSION="$((MAJOR + 1)).0.0" ;;
-          minor) RELEASE_VERSION="$MAJOR.$((MINOR + 1)).0" ;;
-          patch) RELEASE_VERSION="$MAJOR.$MINOR.$((PATCH + 1))" ;;
+          major) NEXT_VERSION="$((MAJOR + 1)).0.0" ;;
+          minor) NEXT_VERSION="$MAJOR.$((MINOR + 1)).0" ;;
+          patch) NEXT_VERSION="$MAJOR.$MINOR.$((PATCH + 1))" ;;
           *)
             echo "Invalid version scheme: $SCHEME"
             exit 1
             ;;
         esac
         
-        echo "Detected release version: $RELEASE_VERSION"
-        echo "release_version=$RELEASE_VERSION" >> $GITHUB_OUTPUT
-        echo "base_version=$BASE_VERSION" >> $GITHUB_OUTPUT
+        echo "Detected release version: $BASE_VERSION"
+        echo "Next version develop: $NEXT_VERSION"
+        echo "release_version=$BASE_VERSION" >> $GITHUB_OUTPUT
+        echo "base_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
