@@ -60,6 +60,7 @@ runs:
         # Parse version components
         IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
         
+        RELEASE_VERSION=""
         # Calculate next release version based on scheme
         case "$SCHEME" in
           major) RELEASE_VERSION="$((MAJOR + 1)).0.0" ;;
