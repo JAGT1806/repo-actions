@@ -32,7 +32,7 @@ runs:
         DEVELOP_BRANCH="${{ inputs.develop_branch }}"
         SCHEME="${{ inputs.version_scheme }}"
         
-        echo "Detecting version from $BASE_BRANCH with scheme: $SCHEME"
+        echo "Detecting version from $DEVELOP_BRANCH with scheme: $SCHEME"
         
         # Fetch and checkout develop
         git fetch origin "$DEVELOP_BRANCH":"$DEVELOP_BRANCH"
