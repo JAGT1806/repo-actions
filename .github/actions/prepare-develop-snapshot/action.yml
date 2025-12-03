@@ -6,6 +6,9 @@ inputs:
   base_version:
     required: true
     description: base version
+  github_token:
+    required: false
+    description: GitHub Token
 outputs:
   develop_snapshot:
     description: next develop snapshot version
@@ -17,6 +20,8 @@ runs:
     - name: Bump develop to next snapshot
       id: bump
       shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
       run: |
         set -euo pipefail
         BASE="${{ inputs.base_version }}"
