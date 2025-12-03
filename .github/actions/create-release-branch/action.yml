@@ -73,10 +73,10 @@ runs:
         # Set release version (no -SNAPSHOT)
         if [ -f "pom.xml" ]; then
           echo "Detected Maven project"
-          mvn -q versions:set -DnewVersion="$RELEASE_VERSION" -DgenerateBackupPoms=false
+          mvn -q versions:set -DnewVersion="$VERSION" -DgenerateBackupPoms=false
         elif [ -f "gradle.properties" ]; then
           echo "Detected Gradle project"
-          sed -i.bak "s/^version=.*/version=$RELEASE_VERSION/" gradle.properties
+          sed -i.bak "s/^version=.*/version=$VERSION/" gradle.properties
           rm -f gradle.properties.bak
         else
           echo "WARNING: No build tool detected (pom.xml or gradle.properties)"
