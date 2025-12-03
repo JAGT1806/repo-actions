@@ -58,8 +58,8 @@ runs:
         set -euo pipefail
         
         TAG="${{ steps.normalize-tag.outputs.tag }}"
-        
-        # Build command with optional flags
+        REPO="${GITHUB_REPOSITORY}"
+
         CMD="gh release create \"$TAG\""
         
         # Add title if provided
@@ -89,11 +89,12 @@ runs:
         echo "Creating release with command:"
         echo "$CMD"
         
-        # Execute and capture output
-        RELEASE_JSON=$(eval "$CMD" --json url)
-        RELEASE_URL=$(echo "$RELEASE_JSON" | jq -r '.url')
+        # actually create the release
+        eval "$CMD"
         
-        echo "✅ Release created: $RELEASE_URL"
+        # NOW fetch JSON data using gh api instead of --json
+        RELEASE_URL=$(gh api repos/$REPO/releases/tags/$TAG --jq '.url')
+
         echo "release_url=$RELEASE_URL" >> $GITHUB_OUTPUT
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
