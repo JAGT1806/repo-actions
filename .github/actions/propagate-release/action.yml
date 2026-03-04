@@ -1,125 +1,149 @@
-# JAGT1806/repo-actions/.github/actions/propagate-release
-name: Propagate Release Changes
-description: Propagate changes from one release branch to another branch
+name: 'Propagate Release'
+description: |
+  Propagates changes from a release branch forward to subsequent releases and develop.
+  Handles version conflicts by creating intermediate merge branches.
 
 inputs:
-  from_branch:
+  source_branch:
+    description: 'Source branch to propagate from (e.g. release/0.1)'
     required: true
-    description: Source branch (release branch)
-  to_branch:
-    required: true
-    description: Target branch (next release or develop)
-  packaging:
-    required: false
-    description: Build tool (maven|gradle)
-    default: maven
   github_token:
+    description: 'GitHub token with repo permissions'
     required: true
-    description: Github Token
+  git_user_name:
+    description: 'Git user name for commits'
+    required: false
+    default: 'github-actions[bot]'
+  git_user_email:
+    description: 'Git user email for commits'
+    required: false
+    default: 'github-actions[bot]@users.noreply.github.com'
+  auto_merge:
+    description: 'Attempt automatic merge (true) or just create PR (false)'
+    required: false
+    default: 'true'
 
 outputs:
-  merged:
-    description: Whether the propagation was successful
-    value: ${{ steps.propagate.outputs.merged }}
-  pr_url:
-    description: URL of created PR
-    value: ${{ steps.propagate.outputs.pr_url }}
+  propagated_to:
+    description: 'Comma-separated list of branches propagated to'
+    value: ${{ steps.propagate.outputs.propagated_to }}
 
 runs:
-  using: composite
+  using: 'composite'
   steps:
+    - name: Checkout full history
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ inputs.github_token }}
+
+    - name: Configure git
+      shell: bash
+      run: |
+        git config user.name "${{ inputs.git_user_name }}"
+        git config user.email "${{ inputs.git_user_email }}"
+
     - name: Propagate changes
       id: propagate
       shell: bash
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_TOKEN: ${{ inputs.github_token }}
+        SOURCE_BRANCH: ${{ inputs.source_branch }}
+        AUTO_MERGE: ${{ inputs.auto_merge }}
       run: |
-        set -euo pipefail
-        
-        FROM_BRANCH="${{ inputs.from_branch }}"
-        TO_BRANCH="${{ inputs.to_branch }}"
-        PACKAGING="${{ inputs.packaging }}"
-        
-        echo "Propagating from $FROM_BRANCH to $TO_BRANCH"
-        
-        # Create merge branch
-        MERGE_BRANCH="merge/${FROM_BRANCH//\//-}-to-${TO_BRANCH//\//-}"
-        echo "Merge branch: $MERGE_BRANCH"
-        
-        # Fetch latest changes
-        git fetch origin
-        git checkout -b "$MERGE_BRANCH" "origin/$TO_BRANCH"
-        git push --set-upstream origin "$MERGE_BRANCH"
-        
-        # Merge changes
-        if git merge --no-edit "origin/$FROM_BRANCH"; then
-          echo "Merge successful"
-        
-          # Resolve version conflicts based on packaging
-          if [ "$PACKAGING" = "maven" ] && [ -f "pom.xml" ]; then
-            if git diff --name-only --diff-filter=U | grep -q pom.xml; then
-              echo "Resolving Maven version conflict"
-              git checkout --ours pom.xml
-              git add pom.xml
-            fi
-          elif [ "$PACKAGING" = "gradle" ]; then
-            # Check for gradle.properties conflicts
-            if git diff --name-only --diff-filter=U | grep -q gradle.properties; then
-              echo "Resolving Gradle version conflict"
-              git checkout --ours gradle.properties
-              git add gradle.properties
-            fi
-            # Check for build.gradle conflicts
-            if git diff --name-only --diff-filter=U | grep -q build.gradle; then
-              echo "Resolving build.gradle conflict"
-              git checkout --ours build.gradle
-              git add build.gradle
-            fi
-          fi
-        
-          # Commit if there were resolved conflicts
-          if ! git diff --cached --quiet; then
-            git commit --no-edit
-          fi
-        
-          git push origin "$MERGE_BRANCH"
-        
-          # Create PR
-          PR_URL=$(gh pr create \
-            --base "$TO_BRANCH" \
-            --head "$MERGE_BRANCH" \
-            --title "Auto-merge: $FROM_BRANCH → $TO_BRANCH" \
-            --body "Automated propagation of changes from $FROM_BRANCH" \
-            --json url --jq .url)
-        
-          echo "PR created: $PR_URL"
-          PR_NUMBER=$(basename "$PR_URL")
-        
-          # Wait for PR to be ready for merge
-          echo "Waiting for PR to be mergeable..."
-          for i in {1..10}; do
-            MERGEABLE=$(gh pr view "$PR_NUMBER" --json mergeable --jq .mergeable)
-            if [ "$MERGEABLE" != "UNKNOWN" ]; then
-              break
-            fi
-            sleep 2
-          done
-        
-          if [ "$MERGEABLE" = "MERGEABLE" ]; then
-            echo "Auto-merging PR..."
-            gh pr merge "$PR_NUMBER" --merge --delete-branch --admin
-            echo "merged=true" >> $GITHUB_OUTPUT
-          else
-            echo "PR not mergeable. Status: $MERGEABLE"
-            echo "merged=false" >> $GITHUB_OUTPUT
-          fi
-        
-          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
-        
-        else
-          echo "Merge failed, aborting..."
-          git merge --abort
-          echo "merged=false" >> $GITHUB_OUTPUT
-          echo "pr_url=" >> $GITHUB_OUTPUT
-        fi
- 
+        python3 - <<'PYTHON_EOF'
+        import os
+        import re
+        import subprocess
+        import sys
+
+        source = os.environ["SOURCE_BRANCH"]
+        auto_merge = os.environ["AUTO_MERGE"] == "true"
+        repo = os.environ["GITHUB_REPOSITORY"]
+
+        def run(cmd, check=True, capture=True):
+            result = subprocess.run(cmd, shell=True, capture_output=capture, text=True)
+            if check and result.returncode != 0:
+                print(f"ERROR: {cmd}\n{result.stderr}")
+                sys.exit(result.returncode)
+            return result.stdout.strip()
+
+        # Fetch all branches
+        run("git fetch --all --prune")
+
+        # Get all remote release branches sorted by version
+        branches_raw = run("git branch -r --list 'origin/release/*'")
+        release_branches = []
+        for b in branches_raw.splitlines():
+            b = b.strip().replace("origin/", "")
+            if b:
+                release_branches.append(b)
+
+        def parse_release_version(branch):
+            m = re.match(r'release/(\d+)\.(\d+)', branch)
+            if m:
+                return (int(m.group(1)), int(m.group(2)))
+            return (0, 0)
+
+        release_branches.sort(key=parse_release_version)
+
+        # Find branches after source
+        source_ver = parse_release_version(source)
+        targets = [b for b in release_branches if parse_release_version(b) > source_ver]
+        targets.append("develop")
+
+        print(f"Source: {source}")
+        print(f"Propagation targets: {targets}")
+
+        propagated_to = []
+        current_source = source
+
+        for target in targets:
+            print(f"\n{'='*50}")
+            print(f"Propagating: {current_source} → {target}")
+
+            # Checkout target
+            run(f"git checkout {target}")
+            run(f"git pull origin {target}")
+
+            # Attempt merge
+            merge_result = subprocess.run(
+                f"git merge origin/{current_source} --no-edit -m 'chore: propagate {current_source} into {target} [skip ci]'",
+                shell=True, capture_output=True, text=True
+            )
+
+            if merge_result.returncode == 0:
+                print(f"✅ Merged {current_source} → {target} cleanly")
+                run(f"git push origin {target}")
+                propagated_to.append(target)
+            else:
+                # Merge conflict — create intermediate PR
+                print(f"⚠️ Merge conflict detected. Creating intermediate branch for PR.")
+                run("git merge --abort", check=False)
+                intermediate = f"merge/{current_source.replace('/', '-')}-to-{target.replace('/', '-')}"
+                run(f"git checkout -b {intermediate}")
+
+                # Try merge again on intermediate
+                merge_result2 = subprocess.run(
+                    f"git merge origin/{current_source} --no-edit",
+                    shell=True, capture_output=True, text=True
+                )
+                if merge_result2.returncode != 0:
+                    run("git merge --abort", check=False)
+
+                run(f"git push origin {intermediate}")
+
+                # Create PR via gh CLI
+                pr_title = f"chore: propagate {current_source} into {target}"
+                pr_body = f"Automatic propagation from `{current_source}` to `{target}`.\n\n⚠️ Manual conflict resolution required."
+                run(f'gh pr create --repo {repo} --base {target} --head {intermediate} --title "{pr_title}" --body "{pr_body}"', capture=False)
+                print(f"📝 PR created: {intermediate} → {target}")
+                propagated_to.append(f"PR:{target}")
+
+            current_source = target
+
+        result = ",".join(propagated_to)
+        print(f"\n✅ Propagation complete: {result}")
+        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write(f"propagated_to={result}\n")
+        PYTHON_EOF

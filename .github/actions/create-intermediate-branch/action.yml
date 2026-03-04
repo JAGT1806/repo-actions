@@ -1,0 +1,117 @@
+name: 'Create Intermediate Branch'
+description: |
+  Creates an intermediate branch for merging a bugfix into a release.
+  Handles patch version bump without triggering analysis pipelines.
+  Branch naming: merge/bugfix-<name>-to-release-<X.Y>
+
+inputs:
+  bugfix_branch:
+    description: 'Source bugfix branch (e.g. bugfix/fix-login)'
+    required: true
+  target_release:
+    description: 'Target release branch (e.g. release/0.1)'
+    required: true
+  github_token:
+    description: 'GitHub token with repo permissions'
+    required: true
+  git_user_name:
+    description: 'Git user name'
+    required: false
+    default: 'github-actions[bot]'
+  git_user_email:
+    description: 'Git user email'
+    required: false
+    default: 'github-actions[bot]@users.noreply.github.com'
+
+outputs:
+  intermediate_branch:
+    description: 'Name of the created intermediate branch'
+    value: ${{ steps.create.outputs.intermediate_branch }}
+  new_version:
+    description: 'New patch version set in the intermediate branch'
+    value: ${{ steps.create.outputs.new_version }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Checkout full history
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ inputs.github_token }}
+
+    - name: Configure git
+      shell: bash
+      run: |
+        git config user.name "${{ inputs.git_user_name }}"
+        git config user.email "${{ inputs.git_user_email }}"
+
+    - name: Set up JDK
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: maven
+
+    - name: Create intermediate branch and bump patch
+      id: create
+      shell: bash
+      env:
+        BUGFIX_BRANCH: ${{ inputs.bugfix_branch }}
+        TARGET_RELEASE: ${{ inputs.target_release }}
+        GH_TOKEN: ${{ inputs.github_token }}
+        REPO: ${{ github.repository }}
+      run: |
+        git fetch --all --prune
+
+        # Build intermediate branch name
+        BUGFIX_SHORT=$(echo "$BUGFIX_BRANCH" | sed 's|bugfix/||' | sed 's|/|-|g')
+        RELEASE_SHORT=$(echo "$TARGET_RELEASE" | sed 's|release/||' | sed 's|\.|-|g')
+        INTERMEDIATE="merge/bugfix-${BUGFIX_SHORT}-to-release-${RELEASE_SHORT}"
+        echo "intermediate_branch=${INTERMEDIATE}" >> $GITHUB_OUTPUT
+
+        # Start from the release branch
+        git checkout "$TARGET_RELEASE"
+        git pull origin "$TARGET_RELEASE"
+        git checkout -b "$INTERMEDIATE"
+
+        # Merge bugfix into intermediate
+        git merge "origin/${BUGFIX_BRANCH}" --no-edit -m "chore: merge ${BUGFIX_BRANCH} into intermediate [skip ci]"
+
+        # Read current version from release and bump patch
+        CURRENT_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        BASE="${CURRENT_VERSION%-SNAPSHOT}"
+        IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE"
+        NEW_PATCH=$((PATCH + 1))
+        NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+        echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+        # Set new version (no SNAPSHOT on release)
+        mvn versions:set -DnewVersion="${NEW_VERSION}" -DgenerateBackupPoms=false
+        git add pom.xml
+        git commit -m "chore: bump patch version to ${NEW_VERSION} [skip ci]"
+
+        # Push intermediate branch
+        git push origin "$INTERMEDIATE"
+
+        # Create PR from intermediate to release
+        gh pr create \
+          --repo "$REPO" \
+          --base "$TARGET_RELEASE" \
+          --head "$INTERMEDIATE" \
+          --title "fix: merge ${BUGFIX_BRANCH} into ${TARGET_RELEASE} (v${NEW_VERSION})" \
+          --body "$(cat <<EOF
+        ## Bugfix Integration
+
+        Merges \`${BUGFIX_BRANCH}\` into \`${TARGET_RELEASE}\`.
+
+        - **New version:** \`${NEW_VERSION}\`
+        - **Source:** \`${BUGFIX_BRANCH}\`
+        - **Target:** \`${TARGET_RELEASE}\`
+
+        > ⚠️ This intermediate branch skips CI analysis pipelines.
+        > Full pipeline will run when this PR is merged into \`${TARGET_RELEASE}\`.
+        EOF
+        )"
+
+        echo "✅ Intermediate branch '${INTERMEDIATE}' created and PR opened."

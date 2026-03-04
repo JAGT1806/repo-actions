@@ -1,0 +1,46 @@
+name: 'Get Version'
+description: 'Reads the current version from pom.xml'
+
+outputs:
+  version:
+    description: 'Current version from pom.xml'
+    value: ${{ steps.read.outputs.version }}
+  is_snapshot:
+    description: 'Whether the version is a SNAPSHOT version'
+    value: ${{ steps.read.outputs.is_snapshot }}
+  base_version:
+    description: 'Base version without -SNAPSHOT suffix'
+    value: ${{ steps.read.outputs.base_version }}
+  major:
+    description: 'Major version number'
+    value: ${{ steps.read.outputs.major }}
+  minor:
+    description: 'Minor version number'
+    value: ${{ steps.read.outputs.minor }}
+  patch:
+    description: 'Patch version number'
+    value: ${{ steps.read.outputs.patch }}
+
+runs:
+  using: composite
+  steps:
+    - name: 'Read version from pom.xml'
+      id: read
+      shell: bash
+      run: |
+        VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        
+        BASE_VERSION="${VERSION%-SNAPSHOT}"
+        echo "base_version=${BASE_VERSION}" >> $GITHUB_OUTPUT
+
+        if [[ "$VERSION" == *"-SNAPSHOT" ]]; then
+          echo "is_snapshot=true" >> $GITHUB_OUTPUT
+        else
+          echo "is_snapshot=false" >> $GITHUB_OUTPUT
+        fi
+
+        IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
+        echo "major=${MAJOR}" >> $GITHUB_OUTPUT
+        echo "minor=${MINOR}" >> $GITHUB_OUTPUT
+        echo "patch=${PATCH:-0}" >> $GITHUB_OUTPUT

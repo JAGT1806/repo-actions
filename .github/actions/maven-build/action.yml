@@ -1,0 +1,60 @@
+name: 'Maven Build & Test'
+description: 'Runs Maven build and tests'
+
+inputs:
+  java_version:
+    description: 'Java version to use'
+    required: false
+    default: '17'
+  java_distribution:
+    description: 'Java distribution'
+    required: false
+    default: 'temurin'
+  maven_args:
+    description: 'Additional Maven arguments'
+    required: false
+    default: ''
+  run_tests:
+    description: 'Whether to run tests'
+    required: false
+    default: 'true'
+  cache_key_suffix:
+    description: 'Additional suffix for cache key'
+    required: false
+    default: ''
+
+outputs:
+  test_result:
+    description: 'Test result: success or failure'
+    value: ${{ steps.test.outputs.result }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up JDK
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ inputs.java_version }}
+        distribution: ${{ inputs.java_distribution }}
+        cache: maven
+
+    - name: Build (skip tests)
+      if: inputs.run_tests == 'false'
+      shell: bash
+      run: mvn clean package -DskipTests ${{ inputs.maven_args }}
+
+    - name: Build and Test
+      id: test
+      if: inputs.run_tests == 'true'
+      shell: bash
+      run: |
+        mvn clean verify ${{ inputs.maven_args }}
+        echo "result=success" >> $GITHUB_OUTPUT
+
+    - name: Upload test reports
+      if: always() && inputs.run_tests == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-reports-${{ github.run_id }}${{ inputs.cache_key_suffix }}
+        path: '**/target/surefire-reports/**'
+        if-no-files-found: ignore

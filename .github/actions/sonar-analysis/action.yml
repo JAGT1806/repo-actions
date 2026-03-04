@@ -1,0 +1,108 @@
+name: 'SonarQube Analysis'
+description: 'Runs SonarQube or SonarCloud static code analysis'
+
+inputs:
+  sonar_token:
+    description: 'SonarQube/SonarCloud token'
+    required: true
+  sonar_host_url:
+    description: 'SonarQube host URL. Leave empty for SonarCloud (https://sonarcloud.io)'
+    required: false
+    default: ''
+  sonar_organization:
+    description: 'SonarCloud organization key (only for SonarCloud)'
+    required: false
+    default: ''
+  sonar_project_key:
+    description: 'Sonar project key. Defaults to repo name if empty.'
+    required: false
+    default: ''
+  java_version:
+    description: 'Java version'
+    required: false
+    default: '17'
+  java_distribution:
+    description: 'Java distribution'
+    required: false
+    default: 'temurin'
+  extra_maven_args:
+    description: 'Extra Maven arguments for sonar goal'
+    required: false
+    default: ''
+  quality_gate_wait:
+    description: 'Wait for Sonar Quality Gate result'
+    required: false
+    default: 'true'
+
+outputs:
+  dashboard_url:
+    description: 'Sonar dashboard URL'
+    value: ${{ steps.sonar.outputs.dashboard_url }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up JDK
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ inputs.java_version }}
+        distribution: ${{ inputs.java_distribution }}
+        cache: maven
+
+    - name: Cache SonarQube packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.sonar/cache
+        key: ${{ runner.os }}-sonar
+        restore-keys: ${{ runner.os }}-sonar
+
+    - name: Resolve Sonar parameters
+      id: params
+      shell: bash
+      run: |
+        HOST="${{ inputs.sonar_host_url }}"
+        if [[ -z "$HOST" ]]; then
+          HOST="https://sonarcloud.io"
+          echo "is_cloud=true" >> $GITHUB_OUTPUT
+        else
+          echo "is_cloud=false" >> $GITHUB_OUTPUT
+        fi
+        echo "host=${HOST}" >> $GITHUB_OUTPUT
+
+        PROJECT_KEY="${{ inputs.sonar_project_key }}"
+        if [[ -z "$PROJECT_KEY" ]]; then
+          PROJECT_KEY="${{ github.repository_owner }}_${{ github.event.repository.name }}"
+        fi
+        echo "project_key=${PROJECT_KEY}" >> $GITHUB_OUTPUT
+
+    - name: Run SonarCloud analysis
+      id: sonar
+      if: steps.params.outputs.is_cloud == 'true'
+      shell: bash
+      run: |
+        SONAR_ARGS="-Dsonar.projectKey=${{ steps.params.outputs.project_key }}"
+        SONAR_ARGS="$SONAR_ARGS -Dsonar.organization=${{ inputs.sonar_organization }}"
+        SONAR_ARGS="$SONAR_ARGS -Dsonar.host.url=${{ steps.params.outputs.host }}"
+
+        if [[ "${{ inputs.quality_gate_wait }}" == "true" ]]; then
+          SONAR_ARGS="$SONAR_ARGS -Dsonar.qualitygate.wait=true"
+        fi
+
+        mvn verify sonar:sonar $SONAR_ARGS ${{ inputs.extra_maven_args }} \
+          -Dsonar.token=${{ inputs.sonar_token }}
+
+        echo "dashboard_url=${{ steps.params.outputs.host }}/dashboard?id=${{ steps.params.outputs.project_key }}" >> $GITHUB_OUTPUT
+
+    - name: Run SonarQube analysis
+      if: steps.params.outputs.is_cloud == 'false'
+      shell: bash
+      run: |
+        SONAR_ARGS="-Dsonar.projectKey=${{ steps.params.outputs.project_key }}"
+        SONAR_ARGS="$SONAR_ARGS -Dsonar.host.url=${{ steps.params.outputs.host }}"
+
+        if [[ "${{ inputs.quality_gate_wait }}" == "true" ]]; then
+          SONAR_ARGS="$SONAR_ARGS -Dsonar.qualitygate.wait=true"
+        fi
+
+        mvn verify sonar:sonar $SONAR_ARGS ${{ inputs.extra_maven_args }} \
+          -Dsonar.token=${{ inputs.sonar_token }}
