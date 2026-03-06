@@ -1,0 +1,182 @@
+name: 'Jira Ticket Validator'
+description: 'Validates that commits reference valid Jira tickets with correct type and status'
+
+inputs:
+  jira_base_url:
+    description: 'Jira base URL (e.g. https://myorg.atlassian.net)'
+    required: true
+  jira_user_email:
+    description: 'Jira user email for API authentication'
+    required: true
+  jira_api_token:
+    description: 'Jira API token'
+    required: true
+  jira_project_key:
+    description: 'Jira project key (e.g. MYPROJ). Supports comma-separated for multiple projects.'
+    required: true
+  allowed_issue_types:
+    description: 'Comma-separated list of allowed Jira issue types (e.g. Story,Bug,Task). Empty = all allowed.'
+    required: false
+    default: ''
+  allowed_statuses:
+    description: 'Comma-separated list of allowed Jira statuses (e.g. "In Progress,In Review"). Empty = all allowed.'
+    required: false
+    default: ''
+  branch_name:
+    description: 'Branch name to also extract ticket from (optional)'
+    required: false
+    default: ''
+  fail_on_missing:
+    description: 'Fail if no Jira ticket found in commit message'
+    required: false
+    default: 'true'
+  fail_on_invalid_status:
+    description: 'Fail if ticket status is not in allowed_statuses'
+    required: false
+    default: 'true'
+  fail_on_invalid_type:
+    description: 'Fail if ticket type is not in allowed_issue_types'
+    required: false
+    default: 'true'
+  commits_json:
+    description: 'JSON array of commit messages to validate. Defaults to last commit.'
+    required: false
+    default: ''
+
+outputs:
+  tickets_found:
+    description: 'Comma-separated list of Jira tickets found'
+    value: ${{ steps.validate.outputs.tickets_found }}
+  validation_passed:
+    description: 'Whether all validations passed'
+    value: ${{ steps.validate.outputs.validation_passed }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Validate Jira tickets
+      id: validate
+      shell: bash
+      env:
+        JIRA_BASE_URL: ${{ inputs.jira_base_url }}
+        JIRA_USER: ${{ inputs.jira_user_email }}
+        JIRA_TOKEN: ${{ inputs.jira_api_token }}
+        PROJECT_KEYS: ${{ inputs.jira_project_key }}
+        ALLOWED_TYPES: ${{ inputs.allowed_issue_types }}
+        ALLOWED_STATUSES: ${{ inputs.allowed_statuses }}
+        FAIL_ON_MISSING: ${{ inputs.fail_on_missing }}
+        FAIL_ON_INVALID_STATUS: ${{ inputs.fail_on_invalid_status }}
+        FAIL_ON_INVALID_TYPE: ${{ inputs.fail_on_invalid_type }}
+        COMMITS_JSON: ${{ inputs.commits_json }}
+        BRANCH_NAME: ${{ inputs.branch_name }}
+      run: |
+        python3 - <<'PYTHON_EOF'
+        import os
+        import re
+        import sys
+        import json
+        import urllib.request
+        import urllib.error
+        import base64
+
+        jira_url    = os.environ["JIRA_BASE_URL"].rstrip("/")
+        jira_user   = os.environ["JIRA_USER"]
+        jira_token  = os.environ["JIRA_TOKEN"]
+        project_keys = [k.strip() for k in os.environ["PROJECT_KEYS"].split(",")]
+        allowed_types    = [t.strip() for t in os.environ["ALLOWED_TYPES"].split(",") if t.strip()]
+        allowed_statuses = [s.strip() for s in os.environ["ALLOWED_STATUSES"].split(",") if s.strip()]
+        fail_missing  = os.environ["FAIL_ON_MISSING"] == "true"
+        fail_status   = os.environ["FAIL_ON_INVALID_STATUS"] == "true"
+        fail_type     = os.environ["FAIL_ON_INVALID_TYPE"] == "true"
+        commits_json  = os.environ.get("COMMITS_JSON", "")
+        branch_name   = os.environ.get("BRANCH_NAME", "")
+
+        # Build regex from project keys
+        keys_pattern = "|".join(re.escape(k) for k in project_keys)
+        ticket_regex = re.compile(rf'\b({keys_pattern})-\d+\b')
+
+        # Gather messages to validate
+        messages = []
+        if commits_json:
+            try:
+                msgs = json.loads(commits_json)
+                messages.extend(msgs if isinstance(msgs, list) else [msgs])
+            except json.JSONDecodeError:
+                messages.append(commits_json)
+        if branch_name:
+            messages.append(branch_name)
+
+        if not messages:
+            print("No commits/branch provided to validate.")
+            with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                f.write("tickets_found=\n")
+                f.write("validation_passed=true\n")
+            sys.exit(0)
+
+        # Extract all tickets
+        all_tickets = set()
+        for msg in messages:
+            found = ticket_regex.findall(msg)
+            all_tickets.update(found)
+
+        if not all_tickets:
+            print("⚠️  No Jira tickets found in commits/branch.")
+            with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                f.write("tickets_found=\n")
+                f.write(f"validation_passed={'false' if fail_missing else 'true'}\n")
+            if fail_missing:
+                print("❌ FAIL: No Jira tickets found and fail_on_missing=true")
+                sys.exit(1)
+            sys.exit(0)
+
+        print(f"🎫 Tickets found: {', '.join(sorted(all_tickets))}")
+
+        # Auth header
+        credentials = base64.b64encode(f"{jira_user}:{jira_token}".encode()).decode()
+        headers = {"Authorization": f"Basic {credentials}", "Accept": "application/json"}
+
+        errors = []
+        for ticket in sorted(all_tickets):
+            url = f"{jira_url}/rest/api/3/issue/{ticket}?fields=issuetype,status,summary"
+            req = urllib.request.Request(url, headers=headers)
+            try:
+                with urllib.request.urlopen(req) as resp:
+                    data = json.loads(resp.read())
+                    issue_type   = data["fields"]["issuetype"]["name"]
+                    status       = data["fields"]["status"]["name"]
+                    summary      = data["fields"]["summary"]
+                    print(f"\n  📌 {ticket}: [{issue_type}] [{status}] {summary}")
+
+                    if allowed_types and issue_type not in allowed_types:
+                        msg = f"❌ {ticket}: type '{issue_type}' not in allowed types {allowed_types}"
+                        print(f"  {msg}")
+                        if fail_type:
+                            errors.append(msg)
+
+                    if allowed_statuses and status not in allowed_statuses:
+                        msg = f"❌ {ticket}: status '{status}' not in allowed statuses {allowed_statuses}"
+                        print(f"  {msg}")
+                        if fail_status:
+                            errors.append(msg)
+
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    msg = f"❌ {ticket}: Ticket not found in Jira"
+                    print(f"  {msg}")
+                    errors.append(msg)
+                else:
+                    msg = f"❌ {ticket}: Jira API error {e.code}"
+                    print(f"  {msg}")
+                    errors.append(msg)
+
+        tickets_str = ",".join(sorted(all_tickets))
+        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write(f"tickets_found={tickets_str}\n")
+            f.write(f"validation_passed={'false' if errors else 'true'}\n")
+
+        if errors:
+            print(f"\n❌ Jira validation failed with {len(errors)} error(s).")
+            sys.exit(1)
+        else:
+            print("\n✅ All Jira tickets are valid.")
+        PYTHON_EOF
