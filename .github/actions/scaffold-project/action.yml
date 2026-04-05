@@ -1,0 +1,161 @@
+name: 'Scaffold Project'
+description: |
+  Runs the "init" goal of the local Maven scaffold plugin to generate
+  a new project skeleton in the current working directory.
+  The plugin must already be installed in the local Maven cache
+  (use the install-maven-plugin action beforehand).
+
+inputs:
+  # ── Mandatory project identifiers ──────────────────────
+  group_id:
+    description: 'Maven groupId (e.g. com.mycompany)'
+    required: true
+  artifact_id:
+    description: 'Maven artifactId / project name (e.g. my-service)'
+    required: true
+
+  # ── Optional project metadata ───────────────────────────
+  name:
+    description: 'Human-readable project name. Defaults to artifactId if empty.'
+    required: false
+    default: ''
+  package_name:
+    description: 'Base Java package. Defaults to groupId.artifactId if empty.'
+    required: false
+    default: ''
+  version:
+    description: 'Initial project version (no SNAPSHOT — main branch baseline)'
+    required: false
+    default: '0.0.0'
+
+  # ── Technology choices ───────────────────────────────────
+  java_version:
+    description: 'Java version for the generated project'
+    required: false
+    default: '17'
+  spring_version:
+    description: 'Spring Boot version for the generated project'
+    required: false
+    default: '4.0.0'
+  configuration:
+    description: 'Configuration file format: YAML or PROPERTIES'
+    required: false
+    default: 'YAML'
+  architecture:
+    description: 'Architecture type: HEXAGONAL_MODULAR | HEXAGONAL_STANDARD | MVC'
+    required: false
+    default: 'HEXAGONAL_MODULAR'
+  mapstruct:
+    description: 'Include MapStruct dependency (true/false)'
+    required: false
+    default: 'false'
+  lombok:
+    description: 'Include Lombok dependency (true/false)'
+    required: false
+    default: 'false'
+
+  # ── Plugin coordinates ───────────────────────────────────
+  plugin_group_id:
+    description: 'GroupId of the scaffold Maven plugin'
+    required: true
+  plugin_artifact_id:
+    description: 'ArtifactId of the scaffold Maven plugin'
+    required: true
+  plugin_version:
+    description: 'Version of the scaffold Maven plugin to invoke'
+    required: true
+
+  # ── Output ───────────────────────────────────────────────
+  output_directory:
+    description: 'Parent directory where the project will be created'
+    required: false
+    default: '.'
+
+outputs:
+  project_dir:
+    description: 'Absolute path of the generated project directory'
+    value: ${{ steps.scaffold.outputs.project_dir }}
+
+runs:
+  using: 'composite'
+  steps:
+#    - name: Validate architecture input
+#      shell: bash
+#      run: |
+#        ARCH="${{ inputs.architecture }}"
+#        case "$ARCH" in
+#          HEXAGONAL_MODULAR|HEXAGONAL_STANDARD|MVC)
+#            echo "✅ Architecture: ${ARCH}"
+#            ;;
+#          *)
+#            echo "❌ Invalid architecture '${ARCH}'."
+#            echo "   Allowed values: HEXAGONAL_MODULAR, HEXAGONAL_STANDARD, MVC"
+#            exit 1
+#            ;;
+#        esac
+#
+#    - name: Validate configuration input
+#      shell: bash
+#      run: |
+#        CFG="${{ inputs.configuration }}"
+#        case "$CFG" in
+#          YAML|PROPERTIES)
+#            echo "✅ Configuration type: ${CFG}"
+#            ;;
+#          *)
+#            echo "❌ Invalid configuration '${CFG}'."
+#            echo "   Allowed values: YAML, PROPERTIES"
+#            exit 1
+#            ;;
+#        esac
+
+    - name: Run scaffold plugin init goal
+      id: scaffold
+      shell: bash
+      env:
+        GROUP_ID: ${{ inputs.group_id }}
+        ARTIFACT_ID: ${{ inputs.artifact_id }}
+        NAME: ${{ inputs.name }}
+        PACKAGE_NAME: ${{ inputs.package_name }}
+        VERSION: ${{ inputs.version }}
+        JAVA_VERSION: ${{ inputs.java_version }}
+        SPRING_VERSION: ${{ inputs.spring_version }}
+        CONFIGURATION: ${{ inputs.configuration }}
+        ARCHITECTURE: ${{ inputs.architecture }}
+        MAPSTRUCT: ${{ inputs.mapstruct }}
+        LOMBOK: ${{ inputs.lombok }}
+        PLUGIN_GROUP_ID: ${{ inputs.plugin_group_id }}
+        PLUGIN_ARTIFACT_ID: ${{ inputs.plugin_artifact_id }}
+        PLUGIN_VERSION: ${{ inputs.plugin_version }}
+        OUTPUT_DIRECTORY: ${{ inputs.output_directory }}
+      run: |
+        echo "🚀 Generating project scaffold for '${ARTIFACT_ID}'…"
+
+        # Build the mvn invocation arguments
+        MVN_ARGS=(
+          "${PLUGIN_GROUP_ID}:${PLUGIN_ARTIFACT_ID}:${PLUGIN_VERSION}:init"
+          "-DartifactId=${ARTIFACT_ID}"
+          "-DgroupId=${GROUP_ID}"
+          "-Dversion=${VERSION}"
+          "-Darchitecture=${ARCHITECTURE}"
+          "-Dconfiguration=${CONFIGURATION}"
+          "-DjavaVersion=${JAVA_VERSION}"
+          "-DspringVersion=${SPRING_VERSION}"
+          "-Dmapstruct=${MAPSTRUCT}"
+          "-Dlombok=${LOMBOK}"
+          "-DoutputDirectory=${OUTPUT_DIRECTORY}"
+        )
+
+        # Append optional parameters only when provided
+        if [[ -n "${NAME}" ]]; then
+          MVN_ARGS+=("-Dname=${NAME}")
+        fi
+        if [[ -n "${PACKAGE_NAME}" ]]; then
+          MVN_ARGS+=("-DpackageName=${PACKAGE_NAME}")
+        fi
+
+        mvn "${MVN_ARGS[@]}"
+
+        PROJECT_DIR="$(realpath "${OUTPUT_DIRECTORY}/${ARTIFACT_ID}")"
+        echo "project_dir=${PROJECT_DIR}" >> $GITHUB_OUTPUT
+        echo "✅ Project generated at: ${PROJECT_DIR}"
