@@ -1,0 +1,65 @@
+name: 'Install Maven Plugin from Source'
+description: |
+  Clones a Maven plugin repository, checks out a specific tag/version,
+  and installs it locally via "mvn clean install" so it is available
+  in the local Maven cache for subsequent steps.
+
+inputs:
+  plugin_repo:
+    description: 'Full repository URL (e.g. https://github.com/org/my-maven-plugin.git)'
+    required: true
+  plugin_version:
+    description: 'Tag / version to checkout (e.g. v1.0.0 or 1.0.0)'
+    required: true
+  java_version:
+    description: 'Java version required to build the plugin'
+    required: false
+    default: '17'
+  java_distribution:
+    description: 'Java distribution'
+    required: false
+    default: 'temurin'
+  maven_args:
+    description: 'Extra Maven arguments for the install phase'
+    required: false
+    default: '-DskipTests'
+  work_dir:
+    description: 'Local directory where the plugin will be cloned'
+    required: false
+    default: '/tmp/maven-plugin-src'
+
+outputs:
+  plugin_dir:
+    description: 'Absolute path where the plugin was cloned and built'
+    value: ${{ steps.install.outputs.plugin_dir }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up JDK
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ inputs.java_version }}
+        distribution: ${{ inputs.java_distribution }}
+        cache: maven
+
+    - name: Clone and install plugin
+      id: install
+      shell: bash
+      env:
+        PLUGIN_REPO: ${{ inputs.plugin_repo }}
+        PLUGIN_VERSION: ${{ inputs.plugin_version }}
+        WORK_DIR: ${{ inputs.work_dir }}
+        MAVEN_ARGS: ${{ inputs.maven_args }}
+      run: |
+        echo "📦 Cloning plugin from ${PLUGIN_REPO} at tag ${PLUGIN_VERSION}…"
+
+        rm -rf "${WORK_DIR}"
+        git clone --depth 1 --branch "${PLUGIN_VERSION}" "${PLUGIN_REPO}" "${WORK_DIR}"
+
+        cd "${WORK_DIR}"
+        echo "🔨 Building and installing plugin…"
+        mvn clean install ${MAVEN_ARGS}
+
+        echo "plugin_dir=${WORK_DIR}" >> $GITHUB_OUTPUT
+        echo "✅ Plugin installed from ${PLUGIN_VERSION}"
