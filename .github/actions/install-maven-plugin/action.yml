@@ -36,12 +36,22 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Set up JDK
+    - name: Detect Maven project
+      id: detect_pom
+      shell: bash
+      run: |
+        if compgen -G "**/pom.xml" > /dev/null; then
+          echo "has_pom=true" >> $GITHUB_OUTPUT
+        else
+          echo "has_pom=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Set up JDK (safe)
       uses: actions/setup-java@v4
       with:
         java-version: ${{ inputs.java_version }}
         distribution: ${{ inputs.java_distribution }}
-        cache: maven
+        cache: ${{ steps.detect_pom.outputs.has_pom == 'true' && 'maven' || '' }}
 
     - name: Clone and install plugin
       id: install
@@ -58,6 +68,16 @@ runs:
         git clone --depth 1 --branch "${PLUGIN_VERSION}" "${PLUGIN_REPO}" "${WORK_DIR}"
 
         cd "${WORK_DIR}"
+
+        echo "📁 Repo content:"
+        ls -la
+
+        # 🔍 Validar que exista pom.xml en el plugin
+        if [ ! -f "pom.xml" ]; then
+          echo "❌ No pom.xml found in plugin repository"
+          exit 1
+        fi
+
         echo "🔨 Building and installing plugin…"
         mvn clean install ${MAVEN_ARGS}
 
