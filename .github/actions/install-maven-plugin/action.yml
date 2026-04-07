@@ -65,7 +65,7 @@ runs:
         echo "📦 Cloning plugin from ${PLUGIN_REPO} at tag ${PLUGIN_VERSION}…"
 
         rm -rf "${WORK_DIR}"
-        git -c credential.helper= clone --depth 1 --branch "${PLUGIN_VERSION}" "${PLUGIN_REPO}" "${WORK_DIR}"
+        git clone --depth 1 --branch "${PLUGIN_VERSION}" "${PLUGIN_REPO}" "${WORK_DIR}"
 
         cd "${WORK_DIR}"
 

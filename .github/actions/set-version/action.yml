@@ -38,5 +38,5 @@ runs:
         git config user.email "${{ inputs.git_user_email }}"
         COMMIT_MSG="${{ inputs.commit_message }}"
         COMMIT_MSG="${COMMIT_MSG/\{version\}/${{ inputs.version }}}"
-        git add pom.xml
+        git add -A
         git diff --staged --quiet || git commit -m "${COMMIT_MSG}"
