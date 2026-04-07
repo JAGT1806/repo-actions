@@ -88,7 +88,7 @@ runs:
 
         # Set new version (no SNAPSHOT on release)
         mvn versions:set -DnewVersion="${NEW_VERSION}" -DgenerateBackupPoms=false
-        git add pom.xml
+        git add -A
         git commit -m "chore: bump patch version to ${NEW_VERSION} [skip ci]"
 
         # Push intermediate branch
